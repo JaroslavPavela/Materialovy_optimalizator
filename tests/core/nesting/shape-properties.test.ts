@@ -8,7 +8,7 @@ import {
 } from '../../../src/core/model.ts';
 import { optimizeShapes } from '../../../src/core/nesting/optimizer.ts';
 import { defaultShapeOrder, placeShapes, ShapeContext } from '../../../src/core/nesting/placer.ts';
-import { arbCombPart, arbForbiddenZones, arbShapePart } from '../arbitraries.ts';
+import { arbCombPart, arbForbiddenZones, arbFramePart, arbShapePart } from '../arbitraries.ts';
 import { shapeInvariantViolations } from './invariants.ts';
 
 /** Malá tabule, ať se díly tlačí a vzniká hodně dotyků. */
@@ -35,7 +35,7 @@ const arbInput: fc.Arbitrary<NestingInput> = fc
       .chain((n) =>
         fc.tuple(
           ...Array.from({ length: n }, (_, i) =>
-            fc.oneof(arbShapePart(`p${i}`), arbCombPart(`p${i}`)),
+            fc.oneof(arbShapePart(`p${i}`), arbCombPart(`p${i}`), arbFramePart(`p${i}`)),
           ),
         ),
       ),

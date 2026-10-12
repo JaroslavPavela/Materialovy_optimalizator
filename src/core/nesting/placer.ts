@@ -1,5 +1,5 @@
 import { EPS } from '../geometry/eps.ts';
-import { intersectPolygons, polygonsArea } from '../geometry/clipper.ts';
+import { intersectPolygons, polygonsArea, unionPolygons } from '../geometry/clipper.ts';
 import { polygonBBox, ringBBox } from '../geometry/polygon.ts';
 import { translatePolygon } from '../geometry/transform.ts';
 import type { Point, Polygon, Rect } from '../geometry/types.ts';
@@ -140,11 +140,32 @@ export class ShapeSheet {
         this.regions.set(k, entry);
       }
       if (entry.upto < this.placed.length) {
-        const fresh = this.placed.slice(entry.upto).map((p) => ({
-          nfp: nfps.parts(p.part, p.rotation, part, rotation),
-          at: p.at,
+        const fresh = this.placed.slice(entry.upto);
+        // Díl v otvoru jiného dílu: po odečtení NFP (ten otvory pokrývá) se
+        // přidají IFP otvorů. Dřív umístěné díly ani zóny v otvoru být nemohou
+        // (díl s otvorem se umisťoval podle celého vnějšího obrysu).
+        const withHoles = fresh.map((p) => ({
+          p,
+          holes: nfps.holes(p.part, p.rotation, part, rotation),
         }));
-        entry.region = subtractObstacles(entry.region, fresh);
+        if (withHoles.every((x) => x.holes.length === 0)) {
+          entry.region = subtractObstacles(
+            entry.region,
+            fresh.map((p) => ({ nfp: nfps.parts(p.part, p.rotation, part, rotation), at: p.at })),
+          );
+        } else {
+          for (const { p, holes } of withHoles) {
+            entry.region = subtractObstacles(entry.region, [
+              { nfp: nfps.parts(p.part, p.rotation, part, rotation), at: p.at },
+            ]);
+            if (holes.length > 0) {
+              entry.region = unionPolygons([
+                ...entry.region,
+                ...holes.map((h) => translatePolygon(h, p.at.x, p.at.y)),
+              ]);
+            }
+          }
+        }
         entry.upto = this.placed.length;
       }
       const region = entry.region;
@@ -186,7 +207,7 @@ export class ShapeSheet {
         bb.x > o.bbox.x + o.bbox.width ||
         o.bbox.y > bb.y + bb.height ||
         bb.y > o.bbox.y + o.bbox.height
-      ) && polygonsArea(intersectPolygons([b], [{ outer: o.poly.outer, holes: [] }])) > 1e-6;
+      ) && polygonsArea(intersectPolygons([b], [o.poly])) > 1e-6;
     return !this.placed.some(hits) && !this.ctx.shrunkZonesOf(this.sheet).some(hits);
   }
 

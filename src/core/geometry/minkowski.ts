@@ -1,4 +1,8 @@
-import { minkowskiSum as clipperMinkowskiSum, unionPolygons } from './clipper.ts';
+import {
+  differencePolygons,
+  minkowskiSum as clipperMinkowskiSum,
+  unionPolygons,
+} from './clipper.ts';
 import { orientRing, ringSignedArea } from './polygon.ts';
 import type { Point, Polygon, Ring } from './types.ts';
 
@@ -189,4 +193,60 @@ export function minkowskiSumFast(a: Ring, b: Ring): Polygon[] {
   const sums: Polygon[] = [];
   for (const x of pa) for (const y of pb) sums.push({ outer: convexMinkowski(x, y), holes: [] });
   return unionPolygons(sums);
+}
+
+/** Konvexní obal bodů (monotónní řetězec), CCW, bez kolineárních vrcholů. */
+export function convexHull(points: readonly Point[]): Point[] {
+  const pts = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length < 3) return pts;
+  const half = (list: readonly Point[]) => {
+    const h: Point[] = [];
+    for (const p of list) {
+      while (h.length >= 2 && cross(h[h.length - 2]!, h[h.length - 1]!, p) <= 0) h.pop();
+      h.push(p);
+    }
+    h.pop();
+    return h;
+  };
+  return [...half(pts), ...half(pts.toReversed())];
+}
+
+/**
+ * Inner-fit polygon otvoru H pro pohyblivý tvar B (referenční bod = počátek B):
+ * posuny t, při kterých B + t leží celý v H. Spočítá se jako (H − b0) bez
+ * „tažení" −B po hranici H (∂H ⊕ (−B) = sjednocení konvexních obalů
+ * Bⱼ + p a Bⱼ + q pro každou hranu pq a konvexní část Bⱼ tvaru −B). Bod b0 B
+ * uvnitř H a žádný průnik s hranicí ⇒ celé souvislé B uvnitř H.
+ * `forbidden` upraví zakázanou oblast (např. tolerance skládání).
+ * Prázdné pole = B se do otvoru nevejde (nebo rozklad selhal – konzervativně).
+ */
+export function holeInnerFit(
+  hole: Ring,
+  b: Ring,
+  forbidden: (polys: Polygon[]) => Polygon[] = (p) => p,
+): Polygon[] {
+  const neg = b.map((p) => ({ x: -p.x, y: -p.y }));
+  const pieces = convexDecomposition(neg);
+  if (!pieces || hole.length < 3) return [];
+  const sweeps: Polygon[] = [];
+  for (let i = 0; i < hole.length; i++) {
+    const p = hole[i]!;
+    const q = hole[(i + 1) % hole.length]!;
+    for (const piece of pieces) {
+      const hull = convexHull([
+        ...piece.map((v) => ({ x: v.x + p.x, y: v.y + p.y })),
+        ...piece.map((v) => ({ x: v.x + q.x, y: v.y + q.y })),
+      ]);
+      if (hull.length >= 3) sweeps.push({ outer: hull, holes: [] });
+    }
+  }
+  const b0 = b[0]!;
+  const start: Polygon = {
+    outer: orientRing(
+      hole.map((p) => ({ x: p.x - b0.x, y: p.y - b0.y })),
+      'ccw',
+    ),
+    holes: [],
+  };
+  return differencePolygons([start], forbidden(unionPolygons(sweeps)));
 }

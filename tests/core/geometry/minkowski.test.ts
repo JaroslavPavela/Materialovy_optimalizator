@@ -4,7 +4,9 @@ import { minkowskiSum, pointInIntRing, polygonsArea } from '../../../src/core/ge
 import {
   cleanRing,
   convexDecomposition,
+  convexHull,
   convexMinkowski,
+  holeInnerFit,
   minkowskiSumFast,
 } from '../../../src/core/geometry/minkowski.ts';
 import {
@@ -98,5 +100,41 @@ describe('minkowski přes konvexní rozklad', () => {
       ),
       { numRuns: 80 },
     );
+  });
+});
+
+describe('IFP otvoru a konvexní obal', () => {
+  it('convexHull: čtverec s vnitřními a kolineárními body', () => {
+    const h = convexHull([
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 3, y: 4 },
+      { x: 0, y: 10 },
+    ]);
+    expect(h).toHaveLength(4);
+    expect(ringArea(h)).toBe(100);
+  });
+
+  it('čtverec 20 v otvoru 100: posuny [0, 80]²; tvar L v otvoru tvaru L', () => {
+    const ifp = holeInnerFit(sq(0, 0, 100).toReversed(), sq(0, 0, 20));
+    expect(polygonsArea(ifp)).toBeCloseTo(80 * 80, 3);
+    expect(inside({ x: 40, y: 40 }, ifp)).toBe(true);
+    expect(inside({ x: 85, y: 40 }, ifp)).toBe(false);
+    const lHole: Ring = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 30 },
+      { x: 30, y: 30 },
+      { x: 30, y: 100 },
+      { x: 0, y: 100 },
+    ];
+    const lIfp = holeInnerFit(lHole, sq(0, 0, 20));
+    // Čtverec 20 se do ramen L (šířka 30) vejde s vůlí 10 v jednom směru.
+    expect(inside({ x: 50, y: 5 }, lIfp)).toBe(true);
+    expect(inside({ x: 5, y: 50 }, lIfp)).toBe(true);
+    expect(inside({ x: 50, y: 50 }, lIfp)).toBe(false);
+    expect(holeInnerFit(sq(0, 0, 10), sq(0, 0, 20))).toEqual([]);
   });
 });

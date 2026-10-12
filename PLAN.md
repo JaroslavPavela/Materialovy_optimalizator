@@ -125,7 +125,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Fáze 6 – Rozšíření
 
-- [ ] 6.1 Díl v otvoru jiného dílu (otvory jako další IFP).
+- [x] 6.1 Díl v otvoru jiného dílu (otvory jako další IFP).
 - [ ] 6.2 Zbytky: uložit nevyužitý zbytek tabule jako novou tabuli do skladu
       a nabídnout ho při dalším výpočtu přednostně.
 
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 6.1
-Poslední commit: perf: rychlý Minkowski, přerušitelný optimalizátor a opravy z revize (krok 5.7)
+Aktuální krok: 6.2
+Poslední commit: feat: díl v otvoru jiného dílu (krok 6.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -424,3 +424,11 @@ BLOKOVÁNO: ne
   na míru do zářezu jiného dílu se neumístí (štěrbinu nulové šířky odstraní
   už sjednocení v Minkowského součtu).
 - Konec fáze 5: push selhal – repozitář stále nemá nastavený remote. Pokračuji.
+- 6.1: Jen tvarový režim (MaxRects pracuje s obalovými obdélníky). IFP otvoru
+  H pro díl B = (H − b0) − (∂H ⊕ (−B)); tažení po hranici přes konvexní obaly
+  konvexních částí −B (`holeInnerFit` v minkowski.ts), cache podle
+  relativního natočení. Po umístění dílu se z přípustné oblasti odečte jeho
+  NFP (pokrývá i otvory) a přidají se IFP jeho otvorů posunuté na místo;
+  dřív umístěné díly ani zóny v otvoru být nemohou. Otvor nafouknutého dílu
+  je zmenšený o s/2, díl v něm nafouknutý o s/2 → odstup ≥ s. Pojistka
+  kandidátů počítá s otvory umístěných dílů.

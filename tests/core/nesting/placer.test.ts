@@ -234,3 +234,57 @@ describe('pojistka ověření kandidáta', () => {
     expect(s.fits(part, at(110 - 2 * EPS, 10))).toBe(false);
   });
 });
+
+describe('díl v otvoru jiného dílu (6.1)', () => {
+  /** Rám w × h se stěnou `wall` (otvor CW). */
+  const frame = (id: string, w: number, h: number, wall: number): Part => {
+    const r = (x: number, y: number, rw: number, rh: number) => [
+      { x, y, bulge: 0 },
+      { x: x + rw, y, bulge: 0 },
+      { x: x + rw, y: y + rh, bulge: 0 },
+      { x, y: y + rh, bulge: 0 },
+    ];
+    return {
+      id,
+      name: id,
+      width: w,
+      height: h,
+      quantity: 1,
+      rotation: 'locked',
+      shape: {
+        outer: r(0, 0, w, h),
+        holes: [r(wall, wall, w - 2 * wall, h - 2 * wall).toReversed()],
+      },
+    };
+  };
+
+  it('malé díly se umístí do otvoru rámu, který vyplní celou tabuli', () => {
+    const inp = input(
+      [frame('f', 300, 300, 50), rect('m', 60, 60, { quantity: 4, rotation: 'locked' })],
+      [sheet({ width: 300, height: 300, margin: 0, stock: 1 })],
+      10,
+    );
+    const r = run(inp);
+    expect(r.unplaced).toEqual([]);
+    expect(r.layouts).toHaveLength(1);
+    // Otvor 200 − rozestup: vejde se 2 × 2 díly 60 (s rozestupem 10).
+    for (const p of r.layouts[0]!.placements.filter((x) => x.partId === 'm')) {
+      expect(p.x).toBeGreaterThanOrEqual(60 - 1e-3);
+      expect(p.y).toBeGreaterThanOrEqual(60 - 1e-3);
+      expect(p.x + 60).toBeLessThanOrEqual(240 + 1e-3);
+      expect(p.y + 60).toBeLessThanOrEqual(240 + 1e-3);
+    }
+    expect(shapeInvariantViolations(inp, r)).toEqual([]);
+  });
+
+  it('pátý díl se do otvoru nevejde a skončí neumístěný', () => {
+    const inp = input(
+      [frame('f', 300, 300, 50), rect('m', 60, 60, { quantity: 5, rotation: 'locked' })],
+      [sheet({ width: 300, height: 300, margin: 0, stock: 1 })],
+      10,
+    );
+    const r = run(inp);
+    expect(r.unplaced.map((u) => u.partId)).toEqual(['m']);
+    expect(shapeInvariantViolations(inp, r)).toEqual([]);
+  });
+});

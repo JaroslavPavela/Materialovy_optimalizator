@@ -1,6 +1,6 @@
 import { differencePolygons, offsetPolygons } from '../geometry/clipper.ts';
 import { EPS } from '../geometry/eps.ts';
-import { minkowskiSumFast } from '../geometry/minkowski.ts';
+import { holeInnerFit, minkowskiSumFast } from '../geometry/minkowski.ts';
 import { ringBBox } from '../geometry/polygon.ts';
 import { rotatePolygon, translatePolygon } from '../geometry/transform.ts';
 import type { Point, Polygon, Rect, Ring } from '../geometry/types.ts';
@@ -149,6 +149,21 @@ export class NfpCache {
     const base = this.memo(key('d', a.id, b.id, rel), () =>
       slack(nfp(this.shapes.at(a, 0).outer, this.shapes.at(b, rel).outer)),
     );
+    return rA === 0 ? base : base.map((p) => rotatePolygon(p, rA));
+  }
+
+  /**
+   * IFP otvorů umístěného dílu A (natočeného o rotA) pro díl B v natočení rotB,
+   * v lokálních souřadnicích A (posunout o polohu A). Prázdné = A nemá otvor,
+   * kam by se B vešel.
+   */
+  holes(a: Part, rotA: number, b: Part, rotB: number): Polygon[] {
+    const rA = angleKey(rotA);
+    const rel = angleKey(rotB - rotA);
+    const base = this.memo(key('h', a.id, b.id, rel), () => {
+      const bOuter = this.shapes.at(b, rel).outer;
+      return this.shapes.at(a, 0).holes.flatMap((h) => holeInnerFit(h, bOuter, slack));
+    });
     return rA === 0 ? base : base.map((p) => rotatePolygon(p, rA));
   }
 

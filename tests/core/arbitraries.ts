@@ -416,3 +416,34 @@ export const arbCombPart = (id: string): fc.Arbitrary<Part> =>
         shape: { outer, holes: [] },
       };
     });
+
+/** Rám: obdélník s obdélníkovým otvorem (stěna 5–20 mm) – do otvoru se vejdou jiné díly. */
+export const arbFramePart = (id: string): fc.Arbitrary<Part> =>
+  fc
+    .record({
+      w: fc.integer({ min: 60, max: 220 }),
+      h: fc.integer({ min: 60, max: 200 }),
+      wall: fc.integer({ min: 5, max: 20 }),
+      quantity: fc.integer({ min: 1, max: 2 }),
+      rotation: fc.constantFrom<RotationMode>('ortho', 'locked', 'free'),
+    })
+    .map(({ w, h, wall, quantity, rotation }) => {
+      const r = (x: number, y: number, rw: number, rh: number) => [
+        { x, y, bulge: 0 },
+        { x: x + rw, y, bulge: 0 },
+        { x: x + rw, y: y + rh, bulge: 0 },
+        { x, y: y + rh, bulge: 0 },
+      ];
+      return {
+        id,
+        name: `Rám ${id}`,
+        width: w,
+        height: h,
+        quantity,
+        rotation,
+        shape: {
+          outer: r(0, 0, w, h),
+          holes: [r(wall, wall, w - 2 * wall, h - 2 * wall).toReversed()],
+        },
+      };
+    });
