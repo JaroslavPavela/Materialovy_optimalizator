@@ -65,7 +65,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       jako neumístitelný (např. větší než tabule).
 - [x] 2.3 `core/metrics.ts`: využití po tabulích i celkem, odpad,
       největší volný obdélník (zbytek).
-- [ ] 2.4 Web Worker (Comlink): výpočet mimo UI vlákno, průběh, zrušení.
+- [x] 2.4 Web Worker (Comlink): výpočet mimo UI vlákno, průběh, zrušení.
 - [ ] 2.5 UI: nahrání souboru (drag & drop), editovatelná tabulka dílů,
       nastavení tabulí (formáty, počty, okraj, zakázané zóny) a parametrů
       (rozestup, rotace), tlačítko Vypočítat, náhled v SVG (zoom, posun,
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 2.4
-Poslední commit: test: předpoklad property testu oblouků podle sagity (krok 2.3)
+Aktuální krok: 2.5
+Poslední commit: feat: výpočet ve Web Workeru s průběhem a zastavením (krok 2.4)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -200,3 +200,10 @@ BLOKOVÁNO: ne
 - 2.3: Zbytek se počítá pro každou tabuli (ne jen poslední) jako největší volný
   obdélník MaxRects zmenšený o rozestup/2 – od dílů i zón drží celý rozestup.
   V tvarovém režimu (bez volných obdélníků) je zatím `null`.
+- 2.4: Jádro poskytuje generátor `nestSteps` (průběh po krocích, čisté
+  a synchronní); worker mezi kroky předá řízení smyčce událostí, aby přijal
+  `stop()` – zastavení vrátí nejlepší dosavadní výsledek. Tvrdé zrušení
+  (`abort`) ukončí worker a vytvoří nový. AbortSignal ani SharedArrayBuffer
+  (vyžaduje hlavičky COOP/COEP) se nepoužívají.
+- 2.4: Režim `shape` zatím počítá přes obalové obdélníky – tvarový nesting
+  přijde ve fázi 5. Vitest nově spouští `tests/**/*.test.ts` (i tests/worker).

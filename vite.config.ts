@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   worker: { format: 'es' },
   test: {
-    include: ['tests/core/**/*.test.ts'],
+    include: ['tests/**/*.test.ts'],
     environment: 'node',
   },
 });
