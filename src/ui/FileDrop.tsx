@@ -1,22 +1,32 @@
 import { useRef, useState } from 'react';
+import type { DxfPartMode } from '../core/import/dxf-parts.ts';
 import { useAppStore } from '../state/store.ts';
 
-/** Nahrání CSV s díly – přetažením nebo výběrem souboru. */
+const DXF_MODES: readonly { value: DxfPartMode; label: string }[] = [
+  { value: 'single', label: '1 soubor = 1 díl' },
+  { value: 'multi', label: 'více dílů v souboru' },
+];
+
+/** Nahrání dílů z CSV nebo DXF – přetažením nebo výběrem, i víc souborů najednou. */
 export function FileDrop() {
-  const importCsv = useAppStore((s) => s.importCsv);
-  const report = useAppStore((s) => s.importReport);
+  const importFiles = useAppStore((s) => s.importFiles);
+  const reports = useAppStore((s) => s.importReports);
+  const dxfMode = useAppStore((s) => s.dxfMode);
+  const setDxfMode = useAppStore((s) => s.setDxfMode);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
-  const load = async (files: FileList | null) => {
-    const file = files?.[0];
-    if (!file) return;
-    importCsv(file.name, await file.arrayBuffer());
+  const load = async (list: FileList | null) => {
+    if (!list || list.length === 0) return;
+    const files = await Promise.all(
+      [...list].map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })),
+    );
+    importFiles(files);
   };
 
   return (
     <section className="panel">
-      <h2>Díly z CSV</h2>
+      <h2>Díly z CSV nebo DXF</h2>
       <div
         className={`drop ${over ? 'over' : ''}`}
         onDragOver={(e) => {
@@ -30,15 +40,16 @@ export function FileDrop() {
           void load(e.dataTransfer.files);
         }}
       >
-        <p>Přetáhněte sem soubor CSV, nebo</p>
+        <p>Přetáhněte sem soubory CSV nebo DXF, nebo</p>
         <button type="button" onClick={() => input.current?.click()}>
-          Vybrat soubor…
+          Vybrat soubory…
         </button>
         <input
           ref={input}
           type="file"
-          accept=".csv,.tsv,.txt,text/csv"
-          aria-label="Soubor CSV s díly"
+          multiple
+          accept=".csv,.tsv,.txt,.dxf,text/csv"
+          aria-label="Soubory s díly"
           hidden
           onChange={(e) => {
             void load(e.target.files);
@@ -46,29 +57,45 @@ export function FileDrop() {
           }}
         />
       </div>
-      {report && (
-        <div className="import-report" role="status">
+      <fieldset className="dxf-mode">
+        <legend>DXF</legend>
+        {DXF_MODES.map((m) => (
+          <label key={m.value}>
+            <input
+              type="radio"
+              name="dxf-mode"
+              value={m.value}
+              checked={dxfMode === m.value}
+              onChange={() => setDxfMode(m.value)}
+            />{' '}
+            {m.label}
+          </label>
+        ))}
+      </fieldset>
+      <p className="muted hint">CSV nahradí seznam dílů, díly z DXF se přidají.</p>
+      {reports.map((r, i) => (
+        <div key={i} className="import-report" role="status">
           <p>
-            {report.fileName}: načteno {report.partCount} dílů
-            {report.errors.length > 0 && `, ${report.errors.length} chyb`}
-            {report.warnings.length > 0 && `, ${report.warnings.length} varování`}.
+            {r.fileName}: načteno {r.partCount} dílů
+            {r.errors.length > 0 && `, ${r.errors.length} chyb`}
+            {r.warnings.length > 0 && `, ${r.warnings.length} varování`}.
           </p>
-          {report.errors.length > 0 && (
+          {r.errors.length > 0 && (
             <ul className="errors">
-              {report.errors.map((e, i) => (
-                <li key={i}>{e.message}</li>
+              {r.errors.map((e, k) => (
+                <li key={k}>{e}</li>
               ))}
             </ul>
           )}
-          {report.warnings.length > 0 && (
+          {r.warnings.length > 0 && (
             <ul className="warnings">
-              {report.warnings.map((w, i) => (
-                <li key={i}>{w.message}</li>
+              {r.warnings.map((w, k) => (
+                <li key={k}>{w}</li>
               ))}
             </ul>
           )}
         </div>
-      )}
+      ))}
     </section>
   );
 }

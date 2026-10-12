@@ -116,7 +116,7 @@ test('CSV → výpočet → stažení DXF, SVG a CSV bez chyby', async ({ page }
   page.on('pageerror', (err) => errors.push(err.message));
   await page.goto('/');
   await page
-    .getByLabel('Soubor CSV s díly')
+    .getByLabel('Soubory s díly')
     .setInputFiles(
       fileURLToPath(new URL('../fixtures/csv/excel-cz-strednik-1250.csv', import.meta.url)),
     );

@@ -218,6 +218,27 @@ table.parts td input:not(.num) {
   min-width: 5rem;
 }
 
+table.parts td.num-ro {
+  text-align: right;
+  padding-right: 0.5rem;
+  color: var(--muted);
+}
+
+.dxf-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  border: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.dxf-mode legend {
+  float: left;
+  margin-right: 0.5rem;
+  font-weight: 600;
+}
+
 table.parts input.num {
   width: 4.5rem;
 }

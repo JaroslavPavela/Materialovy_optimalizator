@@ -1,6 +1,7 @@
 import type { RotationMode } from '../core/model.ts';
 import { useAppStore } from '../state/store.ts';
 import { ROTATION_LABEL } from './labels.ts';
+import { formatNumber } from './format.ts';
 import { NumberInput } from './NumberInput.tsx';
 
 /** Editovatelná tabulka dílů. */
@@ -44,22 +45,36 @@ export function PartsTable() {
                     onChange={(e) => updatePart(p.id, { name: e.target.value })}
                   />
                 </td>
-                <td>
-                  <NumberInput
-                    label={`Šířka dílu ${i + 1}`}
-                    value={p.width}
-                    min={0.001}
-                    onCommit={(v) => v !== null && updatePart(p.id, { width: v })}
-                  />
-                </td>
-                <td>
-                  <NumberInput
-                    label={`Výška dílu ${i + 1}`}
-                    value={p.height}
-                    min={0.001}
-                    onCommit={(v) => v !== null && updatePart(p.id, { height: v })}
-                  />
-                </td>
+                {p.shape ? (
+                  // Rozměry tvaru z DXF plynou z obrysu – needitují se.
+                  <>
+                    <td className="num-ro" title="Rozměr obalového obdélníku tvaru z DXF">
+                      <span aria-label={`Šířka dílu ${i + 1}`}>{formatNumber(p.width, 2)}</span>
+                    </td>
+                    <td className="num-ro" title="Rozměr obalového obdélníku tvaru z DXF">
+                      <span aria-label={`Výška dílu ${i + 1}`}>{formatNumber(p.height, 2)}</span>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td>
+                      <NumberInput
+                        label={`Šířka dílu ${i + 1}`}
+                        value={p.width}
+                        min={0.001}
+                        onCommit={(v) => v !== null && updatePart(p.id, { width: v })}
+                      />
+                    </td>
+                    <td>
+                      <NumberInput
+                        label={`Výška dílu ${i + 1}`}
+                        value={p.height}
+                        min={0.001}
+                        onCommit={(v) => v !== null && updatePart(p.id, { height: v })}
+                      />
+                    </td>
+                  </>
+                )}
                 <td>
                   <NumberInput
                     label={`Počet dílu ${i + 1}`}

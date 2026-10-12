@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { parsePartsCsv, type CsvIssue } from '../core/import/csv.ts';
+import { parsePartsCsv } from '../core/import/csv.ts';
+import { partsFromDxf, type DxfPartMode } from '../core/import/dxf-parts.ts';
 import {
   DEFAULT_NESTING_PARAMS,
   type ForbiddenZone,
@@ -14,11 +15,19 @@ import type { NestOutcome, NestProgress } from '../core/nesting/nest.ts';
 import { parseProject, type Project } from '../core/project.ts';
 import { createNestingClient, NestingAbortedError, type NestingClient } from '../worker/client.ts';
 
+/** Výsledek načtení jednoho souboru s díly (CSV nebo DXF). */
 export interface ImportReport {
   readonly fileName: string;
+  readonly kind: 'csv' | 'dxf';
   readonly partCount: number;
-  readonly errors: readonly CsvIssue[];
-  readonly warnings: readonly CsvIssue[];
+  readonly errors: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+/** Soubor k importu – obsah už načtený z disku. */
+export interface ImportFile {
+  readonly name: string;
+  readonly data: ArrayBuffer;
 }
 
 /** Výsledek načtení projektu ze souboru JSON. */
@@ -34,7 +43,10 @@ export interface AppState {
   readonly parts: readonly Part[];
   readonly sheets: readonly Sheet[];
   readonly params: NestingParams;
-  readonly importReport: ImportReport | null;
+  /** Hlášení posledního importu po souborech. */
+  readonly importReports: readonly ImportReport[];
+  /** Režim importu DXF: 1 soubor = 1 díl, nebo každý vnější obrys = díl. */
+  readonly dxfMode: DxfPartMode;
   readonly projectReport: ProjectReport | null;
   /** Uložené formáty tabulí – sdílené mezi projekty. */
   readonly sheetLibrary: readonly Sheet[];
@@ -50,7 +62,13 @@ export interface AppState {
 }
 
 export interface AppActions {
+  /**
+   * Načte soubory s díly: CSV nahradí seznam dílů (další soubory dávky už
+   * přidávají), DXF díly přidá. Podle přípony .dxf, jinak CSV.
+   */
+  importFiles(files: readonly ImportFile[]): void;
   importCsv(fileName: string, data: ArrayBuffer): void;
+  setDxfMode(mode: DxfPartMode): void;
   /** Nahradí zadání projektem (z úložiště nebo souboru); běžící výpočet zruší. */
   loadProject(project: Project): void;
   /** Načte projekt z textu JSON; při chybě zadání nezmění. */
@@ -109,7 +127,8 @@ const initialState: AppState = {
   parts: [],
   sheets: [DEFAULT_SHEET],
   params: DEFAULT_NESTING_PARAMS,
-  importReport: null,
+  importReports: [],
+  dxfMode: 'single',
   projectReport: null,
   sheetLibrary: [],
   status: 'idle',
@@ -124,7 +143,7 @@ const initialState: AppState = {
 
 /** Stav, který se při načtení jiného projektu vrátí na začátek. */
 const projectReset = {
-  importReport: null,
+  importReports: [],
   projectReport: null,
   status: 'idle',
   progress: null,
@@ -212,17 +231,44 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     set((s) => ({ sheetLibrary: s.sheetLibrary.filter((l) => l.id !== libraryId) }));
   },
 
+  importFiles(files) {
+    let parts = get().parts;
+    let replaced = false;
+    const reports: ImportReport[] = [];
+    for (const f of files) {
+      if (/\.dxf$/i.test(f.name)) {
+        const r = partsFromDxf(f.name, f.data, { mode: get().dxfMode, idPrefix: newId('dxf') });
+        parts = [...parts, ...r.parts];
+        reports.push({
+          fileName: f.name,
+          kind: 'dxf',
+          partCount: r.parts.length,
+          errors: r.errors,
+          warnings: r.warnings,
+        });
+      } else {
+        const r = parsePartsCsv(f.data, { idPrefix: newId('csv') });
+        parts = replaced ? [...parts, ...r.parts] : r.parts;
+        replaced = true;
+        const withRow = (i: { row: number; message: string }) => `Řádek ${i.row}: ${i.message}`;
+        reports.push({
+          fileName: f.name,
+          kind: 'csv',
+          partCount: r.parts.length,
+          errors: r.errors.map(withRow),
+          warnings: r.warnings.map(withRow),
+        });
+      }
+    }
+    set({ parts, importReports: reports });
+  },
+
   importCsv(fileName, data) {
-    const r = parsePartsCsv(data, { idPrefix: newId('csv') });
-    set({
-      parts: r.parts,
-      importReport: {
-        fileName,
-        partCount: r.parts.length,
-        errors: r.errors,
-        warnings: r.warnings,
-      },
-    });
+    get().importFiles([{ name: fileName, data }]);
+  },
+
+  setDxfMode(mode) {
+    set({ dxfMode: mode });
   },
 
   addPart() {
@@ -251,7 +297,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   clearParts() {
-    set({ parts: [], importReport: null });
+    set({ parts: [], importReports: [] });
   },
 
   addSheet() {

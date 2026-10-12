@@ -22,7 +22,7 @@ for (const name of [
     page.on('pageerror', (err) => errors.push(err.message));
     await page.goto('/');
 
-    await page.getByLabel('Soubor CSV s díly').setInputFiles(fixture(name));
+    await page.getByLabel('Soubory s díly').setInputFiles(fixture(name));
     const report = page.getByRole('status').filter({ hasText: name });
     await expect(report).toContainText(/načteno [1-9]\d* dílů/);
     await expect(report).not.toContainText('chyb');

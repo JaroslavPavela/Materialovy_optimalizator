@@ -4,6 +4,7 @@ import { DEFAULT_NESTING_PARAMS } from '../../src/core/model.ts';
 import { nest } from '../../src/core/nesting/nest.ts';
 import { serializeProject } from '../../src/core/project.ts';
 import { resetAppStore, setNestingClient, useAppStore } from '../../src/state/store.ts';
+import { circle, dxf, rectPoly } from '../core/import/dxf-builder.ts';
 import type { NestingClient } from '../../src/worker/client.ts';
 
 /** Klient bez workeru – počítá synchronně v testu. */
@@ -34,15 +35,20 @@ describe('store', () => {
   it('import CSV nahradí díly a zapíše hlášení', () => {
     state().importCsv('utf8-bom.csv', fixture('utf8-bom.csv'));
     expect(state().parts.length).toBeGreaterThan(0);
-    expect(state().importReport).toMatchObject({
-      fileName: 'utf8-bom.csv',
-      partCount: state().parts.length,
-    });
+    expect(state().importReports).toEqual([
+      expect.objectContaining({
+        fileName: 'utf8-bom.csv',
+        kind: 'csv',
+        partCount: state().parts.length,
+      }),
+    ]);
   });
 
   it('chybný CSV vrátí chyby s čísly řádků', () => {
     state().importCsv('chyby.csv', fixture('chyby.csv'));
-    expect(state().importReport?.errors.length).toBeGreaterThan(0);
+    const errors = state().importReports[0]!.errors;
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]).toMatch(/^Řádek \d+: /);
   });
 
   it('úprava dílu: undefined smaže volitelné pole', () => {
@@ -139,5 +145,45 @@ describe('store', () => {
 
     state().removeFromLibrary(libId);
     expect(state().sheetLibrary).toEqual([]);
+  });
+
+  it('import DXF: díly se přidají, režim více dílů, dávka CSV + DXF, hlášení po souborech', () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    const plate = enc(
+      dxf({ entities: [rectPoly(0, 0, 200, 100), circle(50, 50, 10), rectPoly(300, 0, 40, 40)] }),
+    );
+    state().addPart();
+    state().importFiles([{ name: 'plech.DXF', data: plate }]);
+    expect(state().parts).toHaveLength(2);
+    const dxfPart = state().parts[1]!;
+    expect(dxfPart).toMatchObject({ name: 'plech', width: 200, height: 100 });
+    expect(dxfPart.shape!.holes).toHaveLength(1);
+    expect(state().importReports[0]).toMatchObject({ kind: 'dxf', partCount: 1 });
+    expect(state().importReports[0]!.warnings.join()).toMatch(/Mimo hlavní obrys/);
+
+    state().setDxfMode('multi');
+    state().importFiles([
+      { name: 'utf8-bom.csv', data: fixture('utf8-bom.csv') },
+      { name: 'plech.dxf', data: plate },
+    ]);
+    const names = state().parts.map((p) => p.name);
+    expect(names.slice(-2)).toEqual(['plech-1', 'plech-2']);
+    expect(state().parts.filter((p) => p.shape)).toHaveLength(2);
+    expect(state().importReports.map((r) => r.kind)).toEqual(['csv', 'dxf']);
+    expect(new Set(state().parts.map((p) => p.id)).size).toBe(state().parts.length);
+  });
+
+  it('výpočet s díly z DXF projde validací a umístí je', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    state().importFiles([
+      {
+        name: 'd.dxf',
+        data: enc(dxf({ entities: [rectPoly(5, 5, 300, 200), circle(100, 100, 30)] })),
+      },
+    ]);
+    state().updatePart(state().parts[0]!.id, { quantity: 4 });
+    await state().calculate();
+    expect(state().status).toBe('done');
+    expect(state().result?.metrics.placedCount).toBe(4);
   });
 });

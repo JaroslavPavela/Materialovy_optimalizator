@@ -69,7 +69,7 @@ test('import CSV → více tabulí → přepínání záložkami', async ({ page
   const errors = collectErrors(page);
   await page.goto('/');
 
-  await page.getByLabel('Soubor CSV s díly').setInputFiles(fixture('utf8-bom.csv'));
+  await page.getByLabel('Soubory s díly').setInputFiles(fixture('utf8-bom.csv'));
   await expect(page.getByRole('status').filter({ hasText: 'utf8-bom.csv' })).toBeVisible();
   await page.getByLabel('Šířka tabule 1').fill('1000');
   await page.getByLabel('Šířka tabule 1').press('Enter');
@@ -99,7 +99,7 @@ test('velký soubor: průběh, zastavení a přepínání výběrem', async ({ p
   const button = (text: string) => page.locator('button', { hasText: text });
   const byLabel = (label: string) => page.locator(`[aria-label="${label}"]`);
 
-  await byLabel('Soubor CSV s díly').setInputFiles(fixture('velky-1000-dilu.csv'));
+  await byLabel('Soubory s díly').setInputFiles(fixture('velky-1000-dilu.csv'));
   await button('Vypočítat').click();
   await expect(byLabel('Průběh výpočtu')).toBeVisible();
   // Po prvním kroku je k dispozici nejlepší dosavadní výsledek.
@@ -123,7 +123,7 @@ test('velký soubor: průběh, zastavení a přepínání výběrem', async ({ p
 test('chybný CSV ukáže chyby s čísly řádků', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/');
-  await page.getByLabel('Soubor CSV s díly').setInputFiles(fixture('chyby.csv'));
+  await page.getByLabel('Soubory s díly').setInputFiles(fixture('chyby.csv'));
   await expect(page.locator('.import-report .errors li').first()).toContainText(/řád/i);
   expect(errors).toEqual([]);
 });

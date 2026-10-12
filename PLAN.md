@@ -95,7 +95,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 4.2 Sestavení kontur: spojení koncových bodů s tolerancí, odstranění
       duplicit, uzavření, rozpoznání vnější kontury a otvorů, sjednocení
       orientace. Neuzavřené kontury nahlásit srozumitelnou chybou.
-- [ ] 4.3 Díly z DXF: režim „1 soubor = 1 díl" i „více dílů v souboru"
+- [x] 4.3 Díly z DXF: režim „1 soubor = 1 díl" i „více dílů v souboru"
       (každá vnější kontura = díl); počet zadán v tabulce dílů; nahrání
       více souborů najednou.
 - [ ] 4.4 Fixtures DXF: generované vlastním writerem + ručně psané okrajové
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 4.3
-Poslední commit: fix: opravy z revize sestavení kontur (krok 4.2)
+Aktuální krok: 4.4
+Poslední commit: feat: díly z DXF a nahrání více souborů (krok 4.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -300,3 +300,11 @@ BLOKOVÁNO: ne
   porovnávají podle výšky oblouku. Vnoření testuje i středy segmentů.
   Známé omezení: kolineární čára překrývající část hrany se neslučuje –
   nahlásí se jako větvení.
+- 4.3: `core/import/dxf-parts.ts`. Režim „1 soubor = 1 díl": největší vnější
+  obrys, ostatní kontury (mimo něj i díly v jeho otvorech) se ignorují
+  s varováním. Díly se pojmenují podle souboru, u více dílů `soubor-1…`
+  shora dolů a zleva doprava; výchozí natočení 0/90/180/270°. Import CSV
+  nahradí seznam dílů, DXF díly přidá (dávka: první CSV nahradí, zbytek
+  přidá). Rozměry dílů z DXF v tabulce nejdou upravit (plynou z obrysu).
+  Hlášení importu jsou po souborech, CSV s číslem řádku. Nad rámec:
+  volitelný filtr vrstev `layer` v jádře (UI pro výběr vrstev zatím ne).
