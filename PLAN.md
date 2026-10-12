@@ -63,7 +63,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       Hotovo: property testy – žádný překryv, vše v užitné ploše mimo
       zakázané zóny, rozestup dodržen, každý díl umístěn nebo nahlášen
       jako neumístitelný (např. větší než tabule).
-- [ ] 2.3 `core/metrics.ts`: využití po tabulích i celkem, odpad,
+- [x] 2.3 `core/metrics.ts`: využití po tabulích i celkem, odpad,
       největší volný obdélník (zbytek).
 - [ ] 2.4 Web Worker (Comlink): výpočet mimo UI vlákno, průběh, zrušení.
 - [ ] 2.5 UI: nahrání souboru (drag & drop), editovatelná tabulka dílů,
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 2.3
-Poslední commit: feat: obdélníkový nesting MaxRects (krok 2.2)
+Aktuální krok: 2.4
+Poslední commit: feat: metriky využití, odpadu a zbytků (krok 2.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -197,3 +197,6 @@ BLOKOVÁNO: ne
   (konzervativně); přesný tvar zóny využije tvarový režim (fáze 5).
 - 2.2: Volba dalšího formátu tabule: zbytky přednostně, pak formát s největší
   umístěnou plochou, při shodě menší tabule.
+- 2.3: Zbytek se počítá pro každou tabuli (ne jen poslední) jako největší volný
+  obdélník MaxRects zmenšený o rozestup/2 – od dílů i zón drží celý rozestup.
+  V tvarovém režimu (bez volných obdélníků) je zatím `null`.
