@@ -3,7 +3,7 @@ import { bulgeToArc, contourBBox, contourToRing } from '../geometry/contour.ts';
 import { orientRing, rectToPolygon, ringArea, simplifyRingWithError } from '../geometry/polygon.ts';
 import { rotatePolygon } from '../geometry/transform.ts';
 import type { Contour, Polygon } from '../geometry/types.ts';
-import type { Part, Sheet } from '../model.ts';
+import { allowedRotations, type Part, type Sheet } from '../model.ts';
 import { partContours } from '../placed.ts';
 
 /** Tětivová odchylka aproximace oblouků pro výpočet (mm). */
@@ -52,6 +52,11 @@ export function partPolygon(part: Part, opts: ShapeOptions = {}): Polygon {
   return approxPartPolygon(part, opts).polygon;
 }
 
+/** Tolerance zaoblení rohů u offsetu „round" (mm) a rezerva na ni. */
+const ROUND_ARC_TOL = 0.01;
+/** Clipper zaokrouhluje počet kroků oblouku: tětiva až ≈ 2,25 × tolerance dovnitř. */
+const ROUND_MARGIN = 3 * ROUND_ARC_TOL;
+
 /** O kolik se díl nafoukne: s/2 + odchylka aproximace dovnitř. */
 export function inflationDelta(spacing: number, approxError = 0): number {
   return spacing / 2 + approxError;
@@ -63,10 +68,16 @@ export function inflationDelta(spacing: number, approxError = 0): number {
  * rohy (miter) přesné nafouknutí vždy obsahuje; obdélník bez oblouků se
  * nafoukne přesně na (w + s) × (h + s). Otvory se zmenšují, případně zaniknou.
  */
-export function inflatedPartPolygon(part: Part, spacing: number, opts: ShapeOptions = {}): Polygon {
+export function inflatedPartPolygon(
+  part: Part,
+  spacing: number,
+  opts: ShapeOptions = {},
+  join: 'miter' | 'round' = 'miter',
+): Polygon {
   const { polygon, error } = approxPartPolygon(part, opts);
-  const delta = inflationDelta(spacing, error);
-  const out = delta > 0 ? offsetPolygons([polygon], delta) : unionPolygons([polygon]);
+  const delta = inflationDelta(spacing, error) + (join === 'round' ? ROUND_MARGIN : 0);
+  const out =
+    delta > 0 ? offsetPolygons([polygon], delta, join, ROUND_ARC_TOL) : unionPolygons([polygon]);
   if (out.length > 0) {
     return out.reduce((a, b) => (ringArea(b.outer) > ringArea(a.outer) ? b : a));
   }
@@ -113,15 +124,24 @@ export class ShapeCache {
   private readonly spacing: number;
   private readonly opts: ShapeOptions;
 
-  constructor(spacing: number, opts: ShapeOptions = {}) {
+  private readonly freeStep: number;
+
+  /**
+   * `freeStep` = krok volné rotace: díl, který se smí natočit mimo násobky
+   * 90°, se nafoukne se zaoblenými rohy (ostrý roh by po natočení o 45°
+   * trčel o s/2·√2), ostatní s ostrými rohy (obdélník přesně o s větší).
+   */
+  constructor(spacing: number, opts: ShapeOptions = {}, freeStep = 90) {
     this.spacing = spacing;
     this.opts = opts;
+    this.freeStep = freeStep;
   }
 
   inflated(part: Part): Polygon {
     let p = this.base.get(part.id);
     if (!p) {
-      p = inflatedPartPolygon(part, this.spacing, this.opts);
+      const offAxis = allowedRotations(part.rotation, this.freeStep).some((r) => r % 90 !== 0);
+      p = inflatedPartPolygon(part, this.spacing, this.opts, offAxis ? 'round' : 'miter');
       this.base.set(part.id, p);
     }
     return p;

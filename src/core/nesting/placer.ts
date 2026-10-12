@@ -13,7 +13,14 @@ import {
   type UnplacedReason,
 } from '../model.ts';
 import { usableRect } from './maxrects.ts';
-import { feasibleRegion, ifpBounds, ifpRect, NfpCache, type Obstacle } from './nfp.ts';
+import {
+  feasibleRegion,
+  ifpBounds,
+  ifpRect,
+  NfpCache,
+  subtractObstacles,
+  type Obstacle,
+} from './nfp.ts';
 import { inflatedZones, ShapeCache } from './shapes.ts';
 
 /** Kus dílu k umístění; `rotation` = preferované natočení (gen optimalizátoru). */
@@ -37,7 +44,7 @@ export class ShapeContext {
 
   constructor(input: NestingInput) {
     this.input = input;
-    this.shapes = new ShapeCache(input.params.spacing);
+    this.shapes = new ShapeCache(input.params.spacing, {}, input.params.freeRotationStep);
     this.nfps = new NfpCache(this.shapes);
   }
 
@@ -73,11 +80,16 @@ interface Candidate {
 const lower = (a: Candidate, b: Candidate) =>
   a.bottom < b.bottom - EPS || (a.bottom <= b.bottom + EPS && a.left < b.left - EPS);
 
-/** Jedna tabule při tvarovém skládání. */
+/**
+ * Jedna tabule při tvarovém skládání. Přípustná oblast se pro každou dvojici
+ * (díl, natočení) drží průběžně: po umístění dílu se z ní odečte jen jeho NFP,
+ * takže hledání nesjednocuje znovu NFP všech umístěných dílů.
+ */
 export class ShapeSheet {
   readonly sheet: Sheet;
   readonly placed: Placed[] = [];
   private readonly ctx: ShapeContext;
+  private readonly regions = new Map<string, { region: Polygon[]; upto: number }>();
 
   constructor(ctx: ShapeContext, sheet: Sheet) {
     this.ctx = ctx;
@@ -98,17 +110,25 @@ export class ShapeSheet {
       const ifp = ifpRect(usable, b);
       const exact = ifpBounds(usable, b);
       if (!ifp || !exact) continue;
-      const obstacles: Obstacle[] = [
-        ...this.placed.map((p) => ({
-          nfp: nfps.parts(p.part, p.rotation, part, rotation),
-          at: p.at,
-        })),
-        ...zones.map((z, i) => ({
+      const k = `${part.id}\u0000${rotation}`;
+      let entry = this.regions.get(k);
+      if (!entry) {
+        const zoneObstacles: Obstacle[] = zones.map((z, i) => ({
           nfp: nfps.zone(`${this.sheet.id}:${i}`, z, part, rotation),
           at: { x: 0, y: 0 },
-        })),
-      ];
-      const region = feasibleRegion(ifp, obstacles);
+        }));
+        entry = { region: feasibleRegion(ifp, zoneObstacles), upto: 0 };
+        this.regions.set(k, entry);
+      }
+      if (entry.upto < this.placed.length) {
+        const fresh = this.placed.slice(entry.upto).map((p) => ({
+          nfp: nfps.parts(p.part, p.rotation, part, rotation),
+          at: p.at,
+        }));
+        entry.region = subtractObstacles(entry.region, fresh);
+        entry.upto = this.placed.length;
+      }
+      const region = entry.region;
       const bb = ringBBox(b);
       for (const poly of region) {
         for (const ring of [poly.outer, ...poly.holes]) {

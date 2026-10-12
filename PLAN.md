@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 5.4
-Poslední commit: feat: tvarový placer přes NFP (krok 5.3)
+Poslední commit: fix: opravy z revize NFP – výkon, cache, natočení (krok 5.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -360,3 +360,11 @@ BLOKOVÁNO: ne
   a vrátí lepší – tvarový režim tak není horší než obalové obdélníky.
   Porovnání výsledků (`compareRectResults`) přijímá i výsledek bez volných
   obdélníků. Invarianty tvarového režimu: tests/core/nesting/invariants.ts.
+- 5.2 (revize): Přípustná oblast se na tabuli drží průběžně pro každou
+  dvojici (díl, natočení) – po umístění se odečte jen NFP nového dílu
+  (200 dílů z 10 tvarů s natočením po 90°: 1,1 s místo ~18 s). Cache NFP
+  podle relativního natočení (N² · R záznamů), normalizované úhly v klíči.
+  Díl s natočením mimo násobky 90° se nafoukne se zaoblenými rohy (+ 0,03 mm
+  rezerva na tětivy), ostatní s ostrými. SLACK = EPS/4 a zmenšení NFP se
+  zaoblenými rohy (součet odchylek zůstane pod EPS); IFP dílu širšího než
+  plocha o ≤ EPS souměrně.

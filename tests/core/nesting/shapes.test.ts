@@ -189,3 +189,24 @@ describe('tvary pro nesting', () => {
     expect(a.outer[0]!.y).toBeCloseTo(p.x, 9);
   });
 });
+
+describe('nafouknutí natočených dílů', () => {
+  it('díl s volnou rotací (krok 45°) se nafoukne se zaoblenými rohy – po natočení těsný obal', () => {
+    const rect: Part = {
+      id: 'r',
+      name: 'R',
+      width: 100,
+      height: 50,
+      quantity: 1,
+      rotation: 'free',
+    };
+    const exact45 = 150 / Math.SQRT2 + 10; // obal otočeného obdélníku + s
+    const free = new ShapeCache(10, {}, 45).at(rect, 45);
+    const w = Math.max(...free.outer.map((p) => p.x)) - Math.min(...free.outer.map((p) => p.x));
+    expect(w).toBeGreaterThanOrEqual(exact45 - 0.01);
+    expect(w).toBeLessThan(exact45 + 0.1);
+    // Jen násobky 90°: ostré rohy, obdélník přesně o s větší.
+    const ortho = new ShapeCache(10, {}, 90).inflated(rect);
+    expect(polygonsArea([ortho])).toBeCloseTo(110 * 60, 6);
+  });
+});

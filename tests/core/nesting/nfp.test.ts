@@ -178,3 +178,69 @@ describe('feasibleRegion a cache', () => {
     expect(cache.zone('s:0', { outer: sq(0, 0, 10), holes: [] }, b, 0)).toBe(z);
   });
 });
+
+describe('revize 5.2: díly přesně na míru, zóny, natočení', () => {
+  const box = (id: string, w: number, h: number): Part => ({
+    id,
+    name: id,
+    width: w,
+    height: h,
+    quantity: 1,
+    rotation: 'locked',
+  });
+  const shapes0 = () => new ShapeCache(0, { arcTol: 0.05, simplifyTol: 0 });
+
+  it('mřížka 2 × 2 a mezera přesně na míru: oblast obsahuje přesnou dotykovou polohu', () => {
+    const shapes = shapes0();
+    const cache = new NfpCache(shapes);
+    const p = box('p', 500, 300);
+    const usable = { x: 0, y: 0, width: 1000, height: 600 };
+    const ifp = ifpRect(usable, shapes.at(p, 0).outer)!;
+    const placed = [
+      { x: 0, y: 0 },
+      { x: 500, y: 0 },
+      { x: 0, y: 300 },
+    ].map((at) => ({ nfp: cache.parts(p, 0, p, 0), at }));
+    const free = feasibleRegion(ifp, placed);
+    expect(free.length).toBeGreaterThan(0);
+    expect(boundaryDist({ x: 500, y: 300 }, free)).toBeLessThanOrEqual(2 * SLACK);
+
+    const gap = box('g', 400, 100);
+    const wall = box('w', 100, 100);
+    const ifp2 = ifpRect({ x: 0, y: 0, width: 600, height: 100 }, shapes.at(gap, 0).outer)!;
+    const walls = [
+      { nfp: cache.parts(wall, 0, gap, 0), at: { x: 0, y: 0 } },
+      { nfp: cache.parts(wall, 0, gap, 0), at: { x: 500, y: 0 } },
+    ];
+    const free2 = feasibleRegion(ifp2, walls);
+    expect(free2.length).toBeGreaterThan(0);
+    expect(boundaryDist({ x: 100, y: 0 }, free2)).toBeLessThanOrEqual(2 * SLACK);
+  });
+
+  it('NFP zóny v souřadnicích tabule blokuje správné polohy', () => {
+    const shapes = shapes0();
+    const cache = new NfpCache(shapes);
+    const b = box('b', 10, 10);
+    const zone = { outer: sq(100, 100, 100), holes: [] };
+    const free = feasibleRegion(
+      ifpRect({ x: 0, y: 0, width: 400, height: 400 }, shapes.at(b, 0).outer)!,
+      [{ nfp: cache.zone('s:0', zone, b, 0), at: { x: 0, y: 0 } }],
+    );
+    expect(inside({ x: 150, y: 150 }, free)).toBe(0);
+    expect(inside({ x: 95, y: 150 }, free)).toBe(0);
+    expect(inside({ x: 300, y: 300 }, free)).toBe(1);
+    expect(inside({ x: 50, y: 150 }, free)).toBe(1);
+  });
+
+  it('cache podle relativního natočení: NFP(A, rA, B, rB) = rot(rA) · NFP(A, 0, B, rB − rA)', () => {
+    const cache = new NfpCache(new ShapeCache(2));
+    const a: Part = { ...box('a', 60, 20), rotation: 'ortho' };
+    const b: Part = { ...box('b', 30, 10), rotation: 'ortho' };
+    const direct = nfp(new ShapeCache(2).at(a, 90).outer, new ShapeCache(2).at(b, 180).outer);
+    const cached = cache.parts(a, 90, b, 180);
+    expect(polygonsArea(cached)).toBeCloseTo(polygonsArea(direct), 0);
+    cache.parts(a, 180, b, 270);
+    cache.parts(a, 90.0000000001, b, 180);
+    expect(cache.misses).toBe(1);
+  });
+});

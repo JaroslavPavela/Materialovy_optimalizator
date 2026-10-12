@@ -6,7 +6,7 @@ import {
 } from '../geometry/clipper.ts';
 import { EPS } from '../geometry/eps.ts';
 import { ringBBox } from '../geometry/polygon.ts';
-import { translatePolygon } from '../geometry/transform.ts';
+import { rotatePolygon, translatePolygon } from '../geometry/transform.ts';
 import type { Point, Polygon, Rect, Ring } from '../geometry/types.ts';
 import type { Part } from '../model.ts';
 import type { ShapeCache } from './shapes.ts';
@@ -14,9 +14,10 @@ import type { ShapeCache } from './shapes.ts';
 /**
  * Tolerance skládání (mm): NFP se zmenší a IFP zvětší o SLACK, aby díly
  * přesně na míru (mezera nulové šířky) nezmizely z přípustné oblasti.
- * Překryv / přesah je tím nejvýš SLACK, tedy pod EPS.
+ * Překryv / přesah: zmenšení (≤ SLACK·√2 v rozích) + přichycení do IFP
+ * (≤ SLACK) + zaokrouhlení Clipperu – vše pod EPS.
  */
-export const SLACK = EPS / 2;
+export const SLACK = EPS / 4;
 
 /**
  * No-fit polygon: množina posunů t, při kterých se B + t překrývá s pevným A
@@ -47,7 +48,10 @@ export function ifpBounds(usable: Rect, b: Ring): IfpBounds | null {
   const x1 = usable.x + usable.width - (bb.x + bb.width);
   const y1 = usable.y + usable.height - (bb.y + bb.height);
   if (x1 < x0 - EPS || y1 < y0 - EPS) return null;
-  return { x0, x1: Math.max(x0, x1), y0, y1: Math.max(y0, y1) };
+  // Díl širší než plocha o ≤ EPS: souměrně doprostřed (přesah ≤ EPS/2 na stranu).
+  const [xa, xb] = x1 < x0 ? [(x0 + x1) / 2, (x0 + x1) / 2] : [x0, x1];
+  const [ya, yb] = y1 < y0 ? [(y0 + y1) / 2, (y0 + y1) / 2] : [y0, y1];
+  return { x0: xa, x1: xb, y0: ya, y1: yb };
 }
 
 /**
@@ -80,22 +84,47 @@ export interface Obstacle {
   readonly at: Point;
 }
 
+/** Přípustná oblast `region` bez NFP překážek (posunutých na jejich místo). */
+export function subtractObstacles(
+  region: readonly Polygon[],
+  obstacles: readonly Obstacle[],
+): Polygon[] {
+  if (obstacles.length === 0 || region.length === 0) return [...region];
+  const blocked = unionPolygons(
+    obstacles.flatMap((o) => o.nfp.map((p) => translatePolygon(p, o.at.x, o.at.y))),
+  );
+  return differencePolygons(region, blocked);
+}
+
 /**
  * Přípustná oblast pro referenční bod B: IFP minus NFP všech překážek
  * (posunutých na jejich místo na tabuli). Prázdné pole = B se nevejde.
  */
 export function feasibleRegion(ifp: Polygon, obstacles: readonly Obstacle[]): Polygon[] {
-  if (obstacles.length === 0) return [ifp];
-  const blocked = unionPolygons(
-    obstacles.flatMap((o) => o.nfp.map((p) => translatePolygon(p, o.at.x, o.at.y))),
-  );
-  return differencePolygons([ifp], blocked);
+  return subtractObstacles([ifp], obstacles);
 }
 
-/** NFP zmenšený o SLACK (přesná mezera mezi díly zůstane přípustná). */
-const slack = (polys: Polygon[]) => offsetPolygons(polys, -SLACK);
+/** Úhel pro klíč cache: [0, 360), zaokrouhlený (90 a 90,0000000001 jsou totéž). */
+const angleKey = (deg: number) => {
+  const r = Math.round((((deg % 360) + 360) % 360) * 1e6) / 1e6;
+  return r === 360 ? 0 : r;
+};
 
-/** Cache NFP podle (díl A, natočení A, díl B, natočení B) a (zóna, díl B, natočení B). */
+/** Klíč z částí, které nemohou obsahovat oddělovač \u0000. */
+const key = (...parts: readonly (string | number)[]) => parts.join('\u0000');
+
+/**
+ * NFP zmenšený o SLACK (přesná mezera mezi díly zůstane přípustná).
+ * Zaoblené rohy: ostré rohy by vyduté vrcholy posunuly až o 2·SLACK.
+ */
+const slack = (polys: Polygon[]) => offsetPolygons(polys, -SLACK, 'round', SLACK / 4);
+
+/**
+ * Cache NFP. Díl–díl podle relativního natočení: NFP(A, rA, B, rB) =
+ * rot(rA) · NFP(A, 0, B, rB − rA) (nafouknutý tvar je otočením tvaru
+ * v natočení 0), takže stačí N² · R záznamů místo (N · R)². Zóny podle
+ * (zóna, díl, natočení).
+ */
 export class NfpCache {
   private readonly cache = new Map<string, Polygon[]>();
   private readonly shapes: ShapeCache;
@@ -108,27 +137,30 @@ export class NfpCache {
 
   /** NFP umístěného dílu A (natočeného o rotA) pro díl B natočený o rotB. */
   parts(a: Part, rotA: number, b: Part, rotB: number): Polygon[] {
-    return this.memo(`${a.id}:${rotA}|${b.id}:${rotB}`, () =>
-      slack(nfp(this.shapes.at(a, rotA).outer, this.shapes.at(b, rotB).outer)),
+    const rA = angleKey(rotA);
+    const rel = angleKey(rotB - rotA);
+    const base = this.memo(key('d', a.id, b.id, rel), () =>
+      slack(nfp(this.shapes.at(a, 0).outer, this.shapes.at(b, rel).outer)),
     );
+    return rA === 0 ? base : base.map((p) => rotatePolygon(p, rA));
   }
 
   /** NFP zakázané zóny (už nafouknuté, v souřadnicích tabule) pro díl B. */
-  zone(key: string, zone: Polygon, b: Part, rotB: number): Polygon[] {
-    return this.memo(`zona:${key}|${b.id}:${rotB}`, () =>
+  zone(zoneKey: string, zone: Polygon, b: Part, rotB: number): Polygon[] {
+    return this.memo(key('z', zoneKey, b.id, angleKey(rotB)), () =>
       slack(nfp(zone.outer, this.shapes.at(b, rotB).outer)),
     );
   }
 
-  private memo(key: string, make: () => Polygon[]): Polygon[] {
-    const hit = this.cache.get(key);
+  private memo(k: string, make: () => Polygon[]): Polygon[] {
+    const hit = this.cache.get(k);
     if (hit) {
       this.hits++;
       return hit;
     }
     this.misses++;
     const v = make();
-    this.cache.set(key, v);
+    this.cache.set(k, v);
     return v;
   }
 }
