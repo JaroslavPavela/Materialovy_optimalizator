@@ -108,7 +108,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 - [x] 5.1 Offset kontur o rozestup/2 (Clipper), zjednodušení polygonů,
       aproximace oblouků pro výpočet (export dál z původní geometrie).
-- [ ] 5.2 NFP díl–díl (Minkowského součet přes Clipper) a IFP (vnitřek
+- [x] 5.2 NFP díl–díl (Minkowského součet přes Clipper) a IFP (vnitřek
       užitné plochy tabule), zakázané zóny jako překážky; cache NFP podle
       (díl A, rotace A, díl B, rotace B).
 - [ ] 5.3 Placer: pro každý díl a povolené natočení nejnižší a nejlevější
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 5.2
-Poslední commit: feat: tvary dílů pro tvarový nesting (krok 5.1)
+Aktuální krok: 5.3
+Poslední commit: feat: NFP, IFP a přípustná oblast (krok 5.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -330,3 +330,9 @@ BLOKOVÁNO: ne
   (`simplifyRing` v polygon.ts) místo Clipper CleanPolygon, u kterého se
   odchylka postupného mazání vrcholů sčítá. Minkowského součet Clipperu
   vrací jen pás tažený po hranici – doplněno sjednocení s posunutým A.
+- 5.2: `core/nesting/nfp.ts`. Referenční bod dílu B = jeho lokální počátek,
+  NFP tedy přímo dává posun (x, y) z `Placement`. NFP se počítá z vnějších
+  obrysů nafouknutých tvarů (otvory dílů až ve fázi 6 – konzervativní).
+  IFP obdélníkové užitné plochy je přesný; díl přesně na míru dá pruh šířky
+  EPS, aby ho booleovské operace neztratily. Zóny jsou překážky přes
+  NFP(zóna, B) v souřadnicích tabule.
