@@ -50,7 +50,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Fáze 2 – CSV a obdélníkový nesting
 
-- [ ] 2.1 docs/format-csv.md + `core/import/csv.ts`: sloupce název, šířka,
+- [x] 2.1 docs/format-csv.md + `core/import/csv.ts`: sloupce název, šířka,
       výška, počet, materiál, tloušťka, rotace (volitelné); autodetekce
       oddělovače (; , tab), desetinná čárka, UTF-8 s BOM i Windows-1250
       (TextDecoder), chyby s číslem řádku. Fixtures v tests/fixtures/csv/.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 2.1
-Poslední commit: feat: geometrie jádra a opravy z revize modelu (krok 1.4)
+Aktuální krok: 2.2
+Poslední commit: feat: import dílů z CSV (krok 2.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -180,3 +180,9 @@ BLOKOVÁNO: ne
   potřebuje ho validace tvaru dílu v modelu.
 - 1.4: `UnplacedReason` rozšířen o `no-matching-sheet` a `blocked`, přidáno
   pravidlo párování materiálu a tloušťky `sheetMatchesPart` (chybějící = libovolný).
+- Konec fáze 1: push selhal – repozitář nemá nastavený remote
+  („No configured push destination"). Remote musí nastavit uživatel
+  (hook jeho přidání blokuje). Push není blokující, pokračuji.
+- 2.1: Navíc podpora UTF-16 s BOM (Excel „Text v kódování Unicode") a
+  volitelné sloupce materiál/tloušťka/rotace i u souboru bez hlavičky.
+  Fixtures generuje `tests/fixtures/generate.mjs` (nepřepisuje existující).

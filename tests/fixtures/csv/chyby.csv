@@ -1,0 +1,13 @@
+název;šířka;výška;počet;rotace
+Dobrý díl;500;400;2;90
+Písmeno v šířce;12,a;400;1;
+
+Záporná výška;500;-5;1;
+Chybí počet;500;400;;
+;300;200;1;
+Desetinný počet;300;200;1,5;
+Nulová šířka;0;200;1;
+;;;;
+Špatná rotace;300;200;1;45
+Velký počet;10;10;20000;
+Poslední dobrý;300;200;3;zadna

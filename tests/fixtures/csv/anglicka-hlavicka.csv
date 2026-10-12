@@ -1,0 +1,4 @@
+Quantity,Name,Width,Height,Thickness,Material,Rotation
+2,Side panel,720,560,18,Oak,flip
+6,Shelf,764.5,520,18,Oak,ortho
+1,Back,1200,800,3,HDF,free
