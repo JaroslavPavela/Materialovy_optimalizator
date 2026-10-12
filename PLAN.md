@@ -73,7 +73,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       Hotovo: průchod v `npm run dev` bez chyb v konzoli (ověřit Playwrightem).
 - [x] 2.6 Úložiště (Dexie): automatické uložení posledního projektu,
       knihovna formátů tabulí, export/import projektu jako JSON.
-- [ ] 2.7 E2E test: nahraj fixture CSV → zobrazí se plán a využití > 0 %.
+- [x] 2.7 E2E test: nahraj fixture CSV → zobrazí se plán a využití > 0 %.
 
 ## Fáze 3 – Export
 
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 2.7
-Poslední commit: feat: úložiště projektu, knihovna formátů a JSON (krok 2.6)
+Aktuální krok: 3.1
+Poslední commit: test: E2E nahrání CSV → plán a využití (krok 2.7)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -229,3 +229,7 @@ BLOKOVÁNO: ne
   IndexedDB ověřuje E2E (obnovení stránky). Ukládá se jen zadání (díly,
   tabule, parametry), ne výsledek. Knihovna formátů je společná pro projekty;
   formát se stejným názvem se při uložení přepíše.
+- 2.7: E2E prochází pět CSV fixtures (UTF-8 s BOM, Windows-1250, čárka/tečka,
+  tabulátor, UTF-16), ne jen jednu.
+- Konec fáze 2: push opět selhal – repozitář stále nemá nastavený remote
+  („No configured push destination"). Pokračuji.
