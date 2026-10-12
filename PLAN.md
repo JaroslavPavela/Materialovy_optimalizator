@@ -106,7 +106,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Fáze 5 – Tvarový nesting
 
-- [ ] 5.1 Offset kontur o rozestup/2 (Clipper), zjednodušení polygonů,
+- [x] 5.1 Offset kontur o rozestup/2 (Clipper), zjednodušení polygonů,
       aproximace oblouků pro výpočet (export dál z původní geometrie).
 - [ ] 5.2 NFP díl–díl (Minkowského součet přes Clipper) a IFP (vnitřek
       užitné plochy tabule), zakázané zóny jako překážky; cache NFP podle
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 5.1
-Poslední commit: test: E2E DXF → plán → export DXF (krok 4.5)
+Aktuální krok: 5.2
+Poslední commit: feat: tvary dílů pro tvarový nesting (krok 5.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -321,3 +321,12 @@ BLOKOVÁNO: ne
   krok doplnil E2E: dva DXF najednou → výpočet → náhled s oblouky a otvory →
   export DXF → zpětný import dává stejné díly (plochy včetně otvorů).
 - Konec fáze 4: push selhal – repozitář stále nemá nastavený remote. Pokračuji.
+- 5.1: `core/geometry/clipper.ts` (obal clipper-lib: offset, sjednocení,
+  rozdíl, průnik, Minkowského součet; mm × 1e4) a `core/nesting/shapes.ts`.
+  Nafouknutí je konzervativní: s/2 + tětivová odchylka oblouků (0,05 mm)
+  + zjednodušení (0,02 mm) + rezerva na zaoblené rohy offsetu (3 × 0,01 mm;
+  Clipper zaokrouhluje počet kroků oblouku a odchylka dosáhne až ≈ 2,25 ×
+  ArcTolerance). Zjednodušení obrysu je Ramer–Douglas–Peucker
+  (`simplifyRing` v polygon.ts) místo Clipper CleanPolygon, u kterého se
+  odchylka postupného mazání vrcholů sčítá. Minkowského součet Clipperu
+  vrací jen pás tažený po hranici – doplněno sjednocení s posunutým A.

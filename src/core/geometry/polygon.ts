@@ -131,3 +131,49 @@ export function pointInRing(p: Point, ring: Ring): boolean {
   }
   return inside;
 }
+
+/**
+ * Zjednodušení uzavřeného obrysu (Ramer–Douglas–Peucker): vynechá vrcholy,
+ * dokud každý původní vrchol leží nejvýš `tol` od výsledného obrysu.
+ * Na rozdíl od postupného mazání vrcholů se odchylka nesčítá.
+ */
+export function simplifyRing(ring: Ring, tol: number): Ring {
+  const n = ring.length;
+  if (n <= 4) return ring;
+  // Rozdělení na dva otevřené řetězce mezi vrcholem 0 a nejvzdálenějším vrcholem.
+  let far = 0;
+  let farD = -1;
+  ring.forEach((p, i) => {
+    const d = Math.hypot(p.x - ring[0]!.x, p.y - ring[0]!.y);
+    if (d > farD) {
+      far = i;
+      farD = d;
+    }
+  });
+  const keep = new Uint8Array(n);
+  keep[0] = keep[far] = 1;
+  const stack: [number, number][] = [
+    [0, far],
+    [far, n],
+  ];
+  while (stack.length > 0) {
+    const [a, b] = stack.pop()!;
+    const pa = ring[a % n]!;
+    const pb = ring[b % n]!;
+    let best = -1;
+    let bestD = tol;
+    for (let i = a + 1; i < b; i++) {
+      const d = pointSegmentDistance(ring[i]!, pa, pb);
+      if (d > bestD) {
+        best = i;
+        bestD = d;
+      }
+    }
+    if (best >= 0) {
+      keep[best] = 1;
+      stack.push([a, best], [best, b]);
+    }
+  }
+  const out = ring.filter((_, i) => keep[i]);
+  return out.length >= 3 ? out : ring;
+}
