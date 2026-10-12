@@ -238,15 +238,20 @@ export function isRotationAllowed(mode: RotationMode, deg: number, freeStep: num
   );
 }
 
+/** Materiál pro porovnání: NFC, malá písmena, bez okrajových mezer; chybějící = ''. */
+function normalizeMaterial(material: string | undefined): string {
+  return (material ?? '').normalize('NFC').trim().toLocaleLowerCase('cs');
+}
+
 /**
  * Smí díl na tabuli? Materiál a tloušťka se porovnávají jen tehdy,
- * když jsou zadány u dílu i u tabule (chybějící = libovolný).
- * Materiál bez ohledu na velikost písmen a okrajové mezery.
+ * když jsou zadány u dílu i u tabule (chybějící nebo prázdný = libovolný).
+ * Materiál bez ohledu na velikost písmen, okrajové mezery a normalizaci Unicode.
  */
 export function sheetMatchesPart(part: Part, sheet: Sheet): boolean {
-  if (part.material !== undefined && sheet.material !== undefined) {
-    if (part.material.trim().toLowerCase() !== sheet.material.trim().toLowerCase()) return false;
-  }
+  const pm = normalizeMaterial(part.material);
+  const sm = normalizeMaterial(sheet.material);
+  if (pm !== '' && sm !== '' && pm !== sm) return false;
   if (part.thickness !== undefined && sheet.thickness !== undefined) {
     if (Math.abs(part.thickness - sheet.thickness) > EPS) return false;
   }
@@ -366,6 +371,20 @@ function shapeIssues(shape: PartShape, width: number, height: number): string[] 
     if (!rectsNear(bb, { x: 0, y: 0, width, height })) {
       issues.push('obalový obdélník tvaru neodpovídá rozměrům dílu.');
     }
+    // Samoprůniky a vzájemnou polohu obrysů řeší import DXF (krok 4.2);
+    // tady jen hrubá kontrola, že otvor nevyčnívá z dílu.
+    shape.holes.forEach((h, k) => {
+      if (h.length < 2) return;
+      const hb = contourBBox(h);
+      if (
+        hb.x < -EPS ||
+        hb.y < -EPS ||
+        hb.x + hb.width > width + EPS ||
+        hb.y + hb.height > height + EPS
+      ) {
+        issues.push(`otvor ${k + 1} leží mimo díl.`);
+      }
+    });
   }
   return issues;
 }

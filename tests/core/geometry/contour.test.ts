@@ -1,4 +1,5 @@
 import fc from 'fast-check';
+import { EPS } from '../../../src/core/geometry/eps.ts';
 import { describe, expect, it } from 'vitest';
 import { pointsNear, rectsNear } from '../../../src/core/geometry/compare.ts';
 import {
@@ -17,6 +18,8 @@ import type { Contour } from '../../../src/core/geometry/types.ts';
 import { arbAngle, arbPoint, arbStarRing, expectRelNear } from '../arbitraries.ts';
 
 const QUARTER = Math.tan(Math.PI / 8); // bulge oblouku 90°
+/** Sagita, pod kterou se oblouk bere jako úsečka (EPS / 10 v contour.ts). */
+const SAGITTA_TOL = EPS / 10;
 
 /** Kruh o poloměru r se středem (cx, cy) ze dvou půlkruhů. */
 const circle = (cx: number, cy: number, r: number, ccw = true): Contour => [
@@ -190,7 +193,7 @@ describe('contourBBox', () => {
     ).toBe(true);
   });
 
-  it('malý oblouk nepřesahující vrcholy nepřidá krajní bod', () => {
+  it('přidá jen krajní body, které leží na oblouku', () => {
     // oblouk 90° CCW z (0,0) do (2,0) se vyboulí dolů do y = 1 − √2
     const c: Contour = [
       { x: 0, y: 0, bulge: QUARTER },
@@ -210,11 +213,13 @@ describe('contourBBox', () => {
         for (let i = 0; i < n; i++) {
           const a = c[i]!;
           const m = segmentMidpoint(a, c[(i + 1) % n]!, a.bulge);
+          // oblouk se sagitou ≤ SAGITTA_EPS se bere jako úsečka → střed smí ležet o tolik vedle
+          const tol = SAGITTA_TOL + 1e-9;
           for (const p of [a, m]) {
-            expect(p.x).toBeGreaterThanOrEqual(bb.x - 1e-9);
-            expect(p.y).toBeGreaterThanOrEqual(bb.y - 1e-9);
-            expect(p.x).toBeLessThanOrEqual(bb.x + bb.width + 1e-9);
-            expect(p.y).toBeLessThanOrEqual(bb.y + bb.height + 1e-9);
+            expect(p.x).toBeGreaterThanOrEqual(bb.x - tol);
+            expect(p.y).toBeGreaterThanOrEqual(bb.y - tol);
+            expect(p.x).toBeLessThanOrEqual(bb.x + bb.width + tol);
+            expect(p.y).toBeLessThanOrEqual(bb.y + bb.height + tol);
           }
         }
         const moved = contourBBox(translateContour(c, d.x, d.y));
@@ -227,5 +232,91 @@ describe('contourBBox', () => {
         ).toBe(true);
       }),
     );
+  });
+});
+
+describe('numerická stabilita a těsnost', () => {
+  /** Hustě vzorkovaný oblouk (pro nezávislé ověření bbox). */
+  function sampleArc(from: { x: number; y: number }, to: { x: number; y: number }, bulge: number) {
+    const arc = bulgeToArc(from, to, bulge);
+    if (!arc) return [from, to];
+    const pts = [];
+    const n = 20000;
+    for (let i = 0; i <= n; i++) {
+      const a = ((arc.startAngle + (arc.sweep * i) / n) * Math.PI) / 180;
+      pts.push({
+        x: arc.center.x + arc.radius * Math.cos(a),
+        y: arc.center.y + arc.radius * Math.sin(a),
+      });
+    }
+    return pts;
+  }
+
+  it('property: bbox jednoho oblouku = bbox hustého vzorkování (i |bulge| > 1, CW, přes 0°)', () => {
+    fc.assert(
+      fc.property(
+        arbPoint,
+        arbPoint,
+        fc.double({ min: -10, max: 10, noNaN: true }),
+        (a, b, bulge) => {
+          fc.pre(Math.hypot(a.x - b.x, a.y - b.y) > 1);
+          const c: Contour = [
+            { ...a, bulge },
+            { ...b, bulge: 0 },
+          ];
+          const bb = contourBBox(c);
+          const sampled = sampleArc(a, b, bulge);
+          const xs = sampled.map((p) => p.x);
+          const ys = sampled.map((p) => p.y);
+          const r = bulgeToArc(a, b, bulge)?.radius ?? 0;
+          // tolerance vzorkování: sagita kroku r·(1 − cos(Δ/2)) ≤ r·Δ²/8
+          const tol = SAGITTA_TOL + 1e-6 + (r * (Math.abs(4 * Math.atan(bulge)) / 20000) ** 2) / 8;
+          expect(Math.abs(bb.x - Math.min(...xs))).toBeLessThanOrEqual(tol);
+          expect(Math.abs(bb.y - Math.min(...ys))).toBeLessThanOrEqual(tol);
+          expect(Math.abs(bb.x + bb.width - Math.max(...xs))).toBeLessThanOrEqual(tol);
+          expect(Math.abs(bb.y + bb.height - Math.max(...ys))).toBeLessThanOrEqual(tol);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it.each([1e-12, 1.6e-12, 1e-10, 1e-8, -1e-8, 1e-7, -1e-7])(
+    'šum v bulge %s na tětivě 3000 mm: bbox ani plocha neujedou víc než o skutečnou úseč',
+    (bulge) => {
+      const c: Contour = [
+        { x: 0, y: 0, bulge },
+        { x: 3000, y: 0, bulge: 0 },
+        { x: 3000, y: 500, bulge: 0 },
+        { x: 0, y: 500, bulge: 0 },
+      ];
+      const sagitta = (Math.abs(bulge) * 3000) / 2;
+      const bb = contourBBox(c);
+      // kladný bulge na spodní hraně se vyboulí ven (dolů), záporný dovnitř
+      expect(bb.y).toBeGreaterThanOrEqual(-(bulge > 0 ? sagitta : 0) - EPS);
+      expect(bb.y).toBeLessThanOrEqual(EPS);
+      expect(Math.abs(bb.x)).toBeLessThanOrEqual(EPS);
+      expect(Math.abs(bb.x + bb.width - 3000)).toBeLessThanOrEqual(EPS);
+      expect(Math.abs(bb.y + bb.height - 500)).toBeLessThanOrEqual(EPS);
+      // odchylka plochy nejvýš plocha úseče ≈ 2/3 · tětiva · sagita
+      expect(Math.abs(contourArea(c) - 1_500_000)).toBeLessThanOrEqual(
+        (2 / 3) * 3000 * sagitta + 1e-6,
+      );
+    },
+  );
+
+  it('malý, ale skutečný oblouk (sagita 0,01 mm) má přesnou plochu úseče', () => {
+    // tětiva 100 mm, sagita s = b·c/2 = 0,01 → b = 2e-4
+    const b = 2e-4;
+    const arc = bulgeToArc({ x: 0, y: 0 }, { x: 100, y: 0 }, b)!;
+    const theta = (arc.sweep * Math.PI) / 180;
+    const exact = ((arc.radius * arc.radius) / 2) * (theta - Math.sin(theta));
+    const c: Contour = [
+      { x: 0, y: 0, bulge: b },
+      { x: 100, y: 0, bulge: 0 },
+      { x: 50, y: 50, bulge: 0 },
+    ];
+    expect(contourSignedArea(c)).toBeCloseTo(2500 + exact, 9);
+    expect(exact).toBeCloseTo((2 / 3) * 100 * 0.01, 6);
   });
 });

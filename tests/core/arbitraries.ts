@@ -58,6 +58,36 @@ export const arbPolygon: fc.Arbitrary<Polygon> = fc
     return { outer: ring, holes: [hole] };
   });
 
+/**
+ * Okrajové tvary: tenký pás (poměr stran až 1:1000), obdélník s kolineárním
+ * vrcholem uprostřed hrany a trojúhelník; vše CCW, souřadnice kolem `origin`.
+ */
+export const arbEdgePolygon: fc.Arbitrary<Polygon> = fc
+  .record({
+    origin: arbPoint,
+    long: fc.double({ min: 1, max: 3000, noNaN: true }),
+    ratio: fc.double({ min: 1, max: 1000, noNaN: true }),
+    kind: fc.constantFrom('strip', 'collinear', 'triangle'),
+  })
+  .map(({ origin: o, long, ratio, kind }): Polygon => {
+    const short = long / ratio;
+    const p = (x: number, y: number) => ({ x: o.x + x, y: o.y + y });
+    switch (kind) {
+      case 'strip':
+        return { outer: [p(0, 0), p(long, 0), p(long, short), p(0, short)], holes: [] };
+      case 'collinear':
+        return {
+          outer: [p(0, 0), p(long / 2, 0), p(long, 0), p(long, short), p(0, short)],
+          holes: [],
+        };
+      default:
+        return { outer: [p(0, 0), p(long, 0), p(0, short)], holes: [] };
+    }
+  });
+
+/** Polygony běžné i okrajové. */
+export const arbAnyPolygon: fc.Arbitrary<Polygon> = fc.oneof(arbPolygon, arbEdgePolygon);
+
 /** Relativní tolerance pro porovnání ploch a délek, které vznikly výpočtem. */
 export function expectRelNear(actual: number, expected: number, rel = 1e-9): void {
   const tol = rel * Math.max(1, Math.abs(expected));

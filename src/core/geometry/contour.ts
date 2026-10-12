@@ -1,10 +1,14 @@
-import { AREA_EPS } from './eps.ts';
+import { AREA_EPS, EPS } from './eps.ts';
 import type { Orientation } from './polygon.ts';
 import { pointsBBox } from './polygon.ts';
 import type { Contour, Point, Rect } from './types.ts';
 
-/** |bulge| pod touto hodnotou se bere jako úsečka. */
-const BULGE_EPS = 1e-12;
+/**
+ * Segment s výškou oblouku nad tětivou (sagitou) do této hodnoty se bere jako
+ * úsečka. Práh podle sagity (ne podle bulge) zabrání numerické nestabilitě
+ * u šumu z CAD: malý bulge na dlouhé tětivě by dal střed ~10¹² mm daleko.
+ */
+const SAGITTA_EPS = EPS / 10;
 
 /** Kruhový oblouk segmentu `from → to` s daným bulge. */
 export interface Arc {
@@ -18,13 +22,13 @@ export interface Arc {
 
 /**
  * Oblouk segmentu `from → to`, nebo `null`, pokud je segment úsečka
- * (bulge ≈ 0) nebo má nulovou délku.
+ * (sagita ≤ SAGITTA_EPS, včetně nulové délky).
  */
 export function bulgeToArc(from: Point, to: Point, bulge: number): Arc | null {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const chord = Math.hypot(dx, dy);
-  if (Math.abs(bulge) <= BULGE_EPS || chord === 0) return null;
+  if ((Math.abs(bulge) * chord) / 2 <= SAGITTA_EPS) return null;
   // Střed leží na ose tětivy: M + levá normála · (1 − b²) / (4b).
   const k = (1 - bulge * bulge) / (4 * bulge);
   const center = { x: (from.x + to.x) / 2 - dy * k, y: (from.y + to.y) / 2 + dx * k };
@@ -63,9 +67,16 @@ export function contourSignedArea(contour: Contour): number {
     if (!arc) continue;
     const theta = (arc.sweep * Math.PI) / 180;
     // Kruhová úseč mezi tětivou a obloukem, se znaménkem podle směru.
-    area += ((arc.radius * arc.radius) / 2) * (theta - Math.sin(theta));
+    area += ((arc.radius * arc.radius) / 2) * thetaMinusSin(theta);
   }
   return area;
+}
+
+/** θ − sin θ bez ztráty přesnosti odčítáním pro malé θ (Taylorova řada). */
+function thetaMinusSin(theta: number): number {
+  if (Math.abs(theta) >= 1e-2) return theta - Math.sin(theta);
+  const t2 = theta * theta;
+  return ((theta * t2) / 6) * (1 - (t2 / 20) * (1 - t2 / 42));
 }
 
 export function contourArea(contour: Contour): number {

@@ -139,8 +139,15 @@ describe('obalový obdélník', () => {
     });
   });
 
-  it('prázdná množina bodů vyhodí chybu', () => {
+  it('prázdná množina bodů a neplatné souřadnice vyhodí chybu', () => {
     expect(() => pointsBBox([])).toThrow(RangeError);
+    expect(() => pointsBBox([{ x: Number.NaN, y: 0 }])).toThrow('Neplatné souřadnice');
+    expect(() =>
+      pointsBBox([
+        { x: 0, y: 0 },
+        { x: 1, y: Number.POSITIVE_INFINITY },
+      ]),
+    ).toThrow(RangeError);
   });
 
   it('obdélník → polygon → bbox je identita, plocha = š × v, CCW', () => {

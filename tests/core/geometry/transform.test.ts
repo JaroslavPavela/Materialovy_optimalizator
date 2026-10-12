@@ -19,7 +19,7 @@ import {
   translationForCorner,
 } from '../../../src/core/geometry/transform.ts';
 import type { Contour } from '../../../src/core/geometry/types.ts';
-import { arbAngle, arbPoint, arbPolygon, expectRelNear } from '../arbitraries.ts';
+import { arbAngle, arbAnyPolygon, arbPoint, arbPolygon, expectRelNear } from '../arbitraries.ts';
 
 /** Tolerance pro souřadnice po několika rotacích v rozsahu ±10 m. */
 const TOL = 1e-6;
@@ -70,7 +70,7 @@ describe('rotatePoint', () => {
 describe('rotace a posun polygonu – property testy', () => {
   it('rotace o 360° je identita', () => {
     fc.assert(
-      fc.property(arbPolygon, arbPoint, (poly, c) => {
+      fc.property(arbAnyPolygon, arbPoint, (poly, c) => {
         expect(polygonsNear(rotatePolygon(poly, 360, c), poly, TOL)).toBe(true);
       }),
     );
@@ -98,7 +98,7 @@ describe('rotace a posun polygonu – property testy', () => {
 
   it('plocha nezávisí na posunu', () => {
     fc.assert(
-      fc.property(arbPolygon, arbPoint, (poly, d) => {
+      fc.property(arbAnyPolygon, arbPoint, (poly, d) => {
         expectRelNear(polygonArea(translatePolygon(poly, d.x, d.y)), polygonArea(poly), 1e-8);
       }),
     );
@@ -106,7 +106,7 @@ describe('rotace a posun polygonu – property testy', () => {
 
   it('plocha nezávisí na rotaci a rotace zachová orientaci obrysů', () => {
     fc.assert(
-      fc.property(arbPolygon, arbAngle, (poly, deg) => {
+      fc.property(arbAnyPolygon, arbAngle, (poly, deg) => {
         const r = rotatePolygon(poly, deg);
         expectRelNear(polygonArea(r), polygonArea(poly), 1e-8);
         expect(ringOrientation(r.outer)).toBe(ringOrientation(poly.outer));
@@ -149,12 +149,17 @@ describe('placePolygon a translationForCorner', () => {
     });
   });
 
-  it('property: placePolygon = rotace kolem počátku, pak posun', () => {
+  it("property: placePolygon odpovídá vzorci x' = x + px·cos − py·sin, y' = y + px·sin + py·cos", () => {
     fc.assert(
-      fc.property(arbPolygon, arbAngle, arbPoint, (poly, deg, at) => {
+      fc.property(arbAnyPolygon, arbAngle, arbPoint, (poly, deg, at) => {
         const placed = placePolygon(poly, deg, at.x, at.y);
-        const expected = translatePolygon(rotatePolygon(poly, deg), at.x, at.y);
-        expect(placed).toEqual(expected);
+        const rad = (deg * Math.PI) / 180;
+        const [c, s] = [Math.cos(rad), Math.sin(rad)];
+        poly.outer.forEach((p, i) => {
+          const q = placed.outer[i]!;
+          expect(Math.abs(q.x - (at.x + p.x * c - p.y * s))).toBeLessThan(1e-7);
+          expect(Math.abs(q.y - (at.y + p.x * s + p.y * c))).toBeLessThan(1e-7);
+        });
         expectRelNear(polygonArea(placed), polygonArea(poly), 1e-8);
       }),
     );

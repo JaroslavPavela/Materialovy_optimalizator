@@ -188,6 +188,13 @@ describe('sheetMatchesPart', () => {
     expect(sheetMatchesPart(part({ thickness: 18 }), sheet({ thickness: 18 + 1e-6 }))).toBe(true);
     expect(sheetMatchesPart(part({ thickness: 18 }), sheet({ thickness: 19 }))).toBe(false);
   });
+
+  it('prázdný materiál = libovolný, Unicode NFC/NFD a česká velká písmena', () => {
+    expect(sheetMatchesPart(part({ material: '' }), sheet({ material: 'DTD' }))).toBe(true);
+    expect(sheetMatchesPart(part({ material: '  ' }), sheet({ material: 'DTD' }))).toBe(true);
+    const nfd = 'Překližka'.normalize('NFD');
+    expect(sheetMatchesPart(part({ material: nfd }), sheet({ material: 'PŘEKLIŽKA' }))).toBe(true);
+  });
 });
 
 describe('totalInstances', () => {
@@ -267,6 +274,16 @@ describe('validateNestingInput', () => {
       expect(shapeMessages(shaped({ shape: { outer: cwOuter, holes: [ccwHole] } }))).toEqual([
         'Díl „Bok": vnější obrys musí být orientován proti směru hodinových ručiček.',
         'Díl „Bok": otvor 1 musí být orientován po směru hodinových ručiček.',
+      ]);
+    });
+
+    it('otvor mimo díl', () => {
+      const outside = [
+        { x: 650, y: 50, bulge: -1 },
+        { x: 750, y: 50, bulge: -1 },
+      ];
+      expect(shapeMessages(shaped({ shape: { outer, holes: [outside] } }))).toEqual([
+        'Díl „Bok": otvor 1 leží mimo díl.',
       ]);
     });
 

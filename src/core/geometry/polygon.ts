@@ -56,13 +56,16 @@ export function normalizePolygon(polygon: Polygon): Polygon {
   };
 }
 
-/** Obalový obdélník bodů. Pro prázdný vstup vyhodí `RangeError`. */
+/** Obalový obdélník bodů. Pro prázdný vstup nebo NaN/±∞ vyhodí `RangeError`. */
 export function pointsBBox(points: Iterable<Point>): Rect {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
   for (const p of points) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      throw new RangeError(`Neplatné souřadnice bodu (${p.x}, ${p.y}).`);
+    }
     if (p.x < minX) minX = p.x;
     if (p.y < minY) minY = p.y;
     if (p.x > maxX) maxX = p.x;

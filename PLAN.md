@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 2.2
-Poslední commit: feat: import dílů z CSV (krok 2.1)
+Poslední commit: fix: opravy z revize geometrie (krok 1.4)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -186,3 +186,6 @@ BLOKOVÁNO: ne
 - 2.1: Navíc podpora UTF-16 s BOM (Excel „Text v kódování Unicode") a
   volitelné sloupce materiál/tloušťka/rotace i u souboru bez hlavičky.
   Fixtures generuje `tests/fixtures/generate.mjs` (nepřepisuje existující).
+- 1.4 (revize): Oblouk se sagitou ≤ EPS/10 se bere jako úsečka (šum v bulge
+  z CAD dával střed ~10¹² mm daleko a chybu bbox 0,09 mm). Samoprůniky obrysů
+  a zakázaných zón validace modelu nekontroluje – řeší import DXF v kroku 4.2.
