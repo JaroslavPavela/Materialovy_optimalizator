@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
-import type { Ring } from '../core/geometry/types.ts';
+import { labelFontSize, partColors, placedPartPaths, ringPath } from '../core/export/svg.ts';
 import type { Part, Sheet, SheetLayout, SheetMetrics } from '../core/model.ts';
-import { placedParts } from '../core/placed.ts';
 import { useAppStore } from '../state/store.ts';
-import { formatNumber, formatPercent, partColor } from './format.ts';
+import { formatNumber, formatPercent } from './format.ts';
 
 /** Výřez SVG v souřadnicích zobrazení (mm, osa Y dolů). */
 interface View {
@@ -30,11 +29,6 @@ function zoomAt(v: View, x: number, y: number, k: number, full: View): View {
   return { x: x - (x - v.x) * f, y: y - (y - v.y) * f, w, h: v.h * f };
 }
 
-/** SVG cesta polygonu; souřadnice jádra (Y nahoru) se převrátí transformací skupiny. */
-function ringsPath(rings: readonly Ring[]): string {
-  return rings.map((r) => `M${r.map((p) => `${p.x} ${p.y}`).join('L')}Z`).join('');
-}
-
 interface SheetSvgProps {
   readonly sheet: Sheet;
   readonly layout: SheetLayout;
@@ -51,8 +45,9 @@ function SheetSvg({ sheet, layout, metrics, parts }: SheetSvgProps) {
   const [view, setView] = useState<View>(full);
   const drag = useRef<{ cx: number; cy: number; view: View; scale: number } | null>(null);
 
-  const placed = useMemo(() => placedParts(parts, layout), [parts, layout]);
-  const colorOf = useMemo(() => new Map(parts.map((p, i) => [p.id, partColor(i)])), [parts]);
+  // Cesty jsou v souřadnicích jádra (Y nahoru); převrací je transformace skupiny.
+  const placed = useMemo(() => placedPartPaths(parts, layout), [parts, layout]);
+  const colorOf = useMemo(() => partColors(parts), [parts]);
 
   // Kolečko myši: React registruje wheel jako pasivní, preventDefault vyžaduje vlastní posluchač.
   useEffect(() => {
@@ -153,7 +148,7 @@ function SheetSvg({ sheet, layout, metrics, parts }: SheetSvgProps) {
             />
           )}
           {sheet.forbiddenZones.map((z) => (
-            <path key={z.id} className="zone" d={ringsPath([z.polygon])}>
+            <path key={z.id} className="zone" d={ringPath(z.polygon)}>
               <title>Zakázaná zóna</title>
             </path>
           ))}
@@ -166,11 +161,11 @@ function SheetSvg({ sheet, layout, metrics, parts }: SheetSvgProps) {
               height={remnant.height}
             />
           )}
-          {placed.map((p) => (
+          {placed.map(({ placed: p, path }) => (
             <path
               key={`${p.part.id}-${p.placement.instance}`}
               className="part"
-              d={ringsPath([p.outline.outer, ...p.outline.holes])}
+              d={path}
               fill={colorOf.get(p.part.id)}
             >
               <title>
@@ -179,23 +174,17 @@ function SheetSvg({ sheet, layout, metrics, parts }: SheetSvgProps) {
             </path>
           ))}
         </g>
-        {placed.map((p) => {
-          const size = Math.min(
-            p.bbox.height * 0.4,
-            (p.bbox.width / Math.max(3, p.part.name.length)) * 1.6,
-          );
-          return (
-            <text
-              key={`${p.part.id}-${p.placement.instance}`}
-              className="part-label"
-              x={p.labelAt.x}
-              y={flipY(p.labelAt.y)}
-              fontSize={size}
-            >
-              {p.part.name}
-            </text>
-          );
-        })}
+        {placed.map(({ placed: p }) => (
+          <text
+            key={`${p.part.id}-${p.placement.instance}`}
+            className="part-label"
+            x={p.labelAt.x}
+            y={flipY(p.labelAt.y)}
+            fontSize={labelFontSize(p.bbox, p.part.name)}
+          >
+            {p.part.name}
+          </text>
+        ))}
         {remnant && (
           <text
             className="remnant-label"

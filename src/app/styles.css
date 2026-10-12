@@ -429,3 +429,92 @@ svg .remnant-label {
 .library li > span {
   flex: 1;
 }
+
+/* Tisk / PDF: aplikace se skryje, tiskne se jen .print-root (vkládá se do <body>). */
+.print-root {
+  display: none;
+}
+
+@media print {
+  :root {
+    background: #fff;
+  }
+
+  body > #root {
+    display: none;
+  }
+
+  .print-root {
+    display: block;
+    font-size: 10pt;
+    color: #000;
+  }
+
+  .print-page {
+    break-after: page;
+  }
+
+  .print-page:last-child {
+    break-after: auto;
+  }
+
+  .print-page h1 {
+    font-size: 16pt;
+    margin: 0 0 4mm;
+  }
+
+  .print-page h2 {
+    font-size: 12pt;
+    margin: 6mm 0 2mm;
+  }
+
+  .print-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 4mm;
+    margin-bottom: 3mm;
+  }
+
+  .print-plan svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 70vh;
+  }
+
+  .print-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1mm 6mm;
+    list-style: none;
+    margin: 3mm 0 0;
+    padding: 0;
+  }
+
+  .print-legend .swatch {
+    display: inline-block;
+    width: 3.5mm;
+    height: 3.5mm;
+    margin-right: 1.5mm;
+    border: 0.2mm solid #000;
+    vertical-align: middle;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-plan {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-table {
+    border-collapse: collapse;
+  }
+
+  .print-table th,
+  .print-table td {
+    border: 0.2mm solid #888;
+    padding: 1mm 2mm;
+    text-align: left;
+  }
+}

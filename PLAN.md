@@ -81,7 +81,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       s CAM), vrstvy TABULE, DILY, OTVORY, POPISKY, oblouky zachovány jako
       ARC; jeden soubor na tabuli, všechny tabule jako ZIP (fflate).
       Hotovo: test „zapiš → přečti dxf-parserem → stejné souřadnice v EPS".
-- [ ] 3.2 SVG export a tisk/PDF přes tiskové CSS (A4/A3 na šířku,
+- [x] 3.2 SVG export a tisk/PDF přes tiskové CSS (A4/A3 na šířku,
       jedna tabule na stránku, legenda a souhrn).
 - [ ] 3.3 CSV výstup: seznam dílů po tabulích + souhrnný řádek.
 - [ ] 3.4 E2E: výpočet → stažení DXF, SVG a CSV proběhne bez chyby.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 3.2
-Poslední commit: fix: opravy z revize DXF writeru (krok 3.1)
+Aktuální krok: 3.3
+Poslední commit: feat: export SVG a tisk/PDF (krok 3.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -246,3 +246,10 @@ BLOKOVÁNO: ne
   oblouků až o 1 mm. Doplněna vrstva 0, styl STANDARD, zóny v $EXTMIN/$EXTMAX
   a zkrácení textu na 255 znaků. Název souboru a ZIP jsou společné
   v core/export/files.ts (použije i SVG a CSV).
+- 3.2: SVG cesta obrysu (`contourPath`, oblouky jako příkaz A), barvy dílů
+  a velikost popisků jsou v core/export/svg.ts a sdílí je i náhled v UI –
+  náhled teď kreslí skutečné obrysy včetně otvorů a oblouků (část kroku 4.5).
+  Barva podle pořadí dílu v zadání (zlatý úhel) místo hashe ID ze skillu –
+  odstíny se nikdy neopakují u sousedních dílů. Tisk: souhrnná strana
+  (využití, tabulky, neumístěné díly) + strana na tabuli s legendou; formát
+  A4/A3 na šířku volí uživatel. Navíc ZIP všech SVG.
