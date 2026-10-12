@@ -1,9 +1,5 @@
-import {
-  writeResultDxf,
-  writeSheetDxf,
-  zipFiles,
-  sheetDxfFileName,
-} from '../core/export/dxf-writer.ts';
+import { writeResultDxf, writeSheetDxf } from '../core/export/dxf-writer.ts';
+import { sheetFileName, zipFiles } from '../core/export/files.ts';
 import { useAppStore } from '../state/store.ts';
 import { download } from './download.ts';
 
@@ -27,7 +23,7 @@ export function ExportPanel() {
     const sheet = input.sheets.find((s) => s.id === layout.sheetId);
     if (!sheet) return;
     download(
-      sheetDxfFileName(PROJECT, index, count),
+      sheetFileName(PROJECT, index, count, 'dxf'),
       writeSheetDxf(sheet, layout, input.parts),
       DXF_TYPE,
     );

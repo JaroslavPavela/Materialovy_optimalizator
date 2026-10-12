@@ -6,11 +6,11 @@ import {
   DXF_LAYERS,
   dxfNumber,
   dxfText,
-  sheetDxfFileName,
+  DXF_MIN_ARC_SAGITTA,
   writeResultDxf,
   writeSheetDxf,
-  zipFiles,
 } from '../../../src/core/export/dxf-writer.ts';
+import { sheetFileName, zipFiles } from '../../../src/core/export/files.ts';
 import { bulgeToArc } from '../../../src/core/geometry/contour.ts';
 import { EPS } from '../../../src/core/geometry/eps.ts';
 import type { Contour, Point } from '../../../src/core/geometry/types.ts';
@@ -146,7 +146,8 @@ function expectSegments(entities: IEntity[], contour: Contour) {
   expect(entities).toHaveLength(segs.length);
   entities.forEach((e, i) => {
     const { from, to } = segs[i]!;
-    const arc = bulgeToArc(from, to, from.bulge);
+    const sagitta = (Math.abs(from.bulge) * Math.hypot(to.x - from.x, to.y - from.y)) / 2;
+    const arc = sagitta < DXF_MIN_ARC_SAGITTA ? null : bulgeToArc(from, to, from.bulge);
     if (!arc) {
       expect(e.type).toBe('LINE');
       const l = e as unknown as { vertices: Point[] };
@@ -332,11 +333,158 @@ describe('writeSheetDxf', () => {
   });
 });
 
+describe('writeSheetDxf – okrajové případy z revize', () => {
+  const one = (
+    part: Part,
+    opts: Parameters<typeof writeSheetDxf>[3] = {},
+    pl?: Partial<Placement>,
+  ) =>
+    writeSheetDxf(
+      sheet,
+      {
+        sheetId: 's',
+        placements: [{ partId: part.id, instance: 0, x: 0, y: 0, rotation: 0, ...pl }],
+      },
+      [part],
+      opts,
+    );
+
+  /** Čočka z oblouku 272° a 87° + otvor s oblouky 2,5 / −1,8 (|sweep| > 180°). */
+  const lens: Part = {
+    id: 'l',
+    name: 'Čočka',
+    width: 100,
+    height: 100,
+    quantity: 1,
+    rotation: 'free',
+    shape: {
+      outer: [
+        { x: 0, y: 0, bulge: 2.5 },
+        { x: 100, y: 0, bulge: 0.4 },
+      ],
+      holes: [
+        [
+          { x: 40, y: 10, bulge: -1.8 },
+          { x: 60, y: 10, bulge: 0 },
+          { x: 50, y: 30, bulge: 0 },
+        ],
+      ],
+    },
+  };
+
+  it('oblouky nad 180° v obou režimech; dva vrcholy s různým bulge nejsou CIRCLE', () => {
+    for (const rotation of [0, 123.4, 270]) {
+      const c = placedContours(lens, { partId: 'l', instance: 0, x: 500, y: 250, rotation });
+      const poly = parse(one(lens, {}, { x: 500, y: 250, rotation })).entities;
+      expectPolyline(onLayer(poly, 'DILY')[0]!, c.outer);
+      expectPolyline(onLayer(poly, 'OTVORY')[0]!, c.holes[0]!);
+      const la = parse(
+        one(lens, { segments: 'lines-arcs' }, { x: 500, y: 250, rotation }),
+      ).entities;
+      expectSegments(onLayer(la, 'DILY'), c.outer);
+      expectSegments(onLayer(la, 'OTVORY'), c.holes[0]!);
+    }
+    for (const bulges of [
+      [1, -1],
+      [1, 0.5],
+    ]) {
+      const part: Part = {
+        ...lens,
+        shape: {
+          outer: [
+            { x: 0, y: 50, bulge: bulges[0]! },
+            { x: 100, y: 50, bulge: bulges[1]! },
+          ],
+          holes: [],
+        },
+      };
+      expect(onLayer(parse(one(part)).entities, 'DILY')[0]!.type).toBe('POLYLINE');
+    }
+  });
+
+  it('úhly ARC jsou zapsané v [0, 360)', () => {
+    const text = one(lens, { segments: 'lines-arcs' }, { rotation: 200 });
+    const lines = text.split('\r\n');
+    let count = 0;
+    for (let i = 0; i + 1 < lines.length; i += 2) {
+      if (lines[i] === '50' || lines[i] === '51') {
+        const a = Number(lines[i + 1]);
+        expect(a).toBeGreaterThanOrEqual(0);
+        expect(a).toBeLessThan(360);
+        count++;
+      }
+    }
+    expect(count).toBeGreaterThan(0);
+  });
+
+  it('téměř rovné oblouky (velký poloměr): koncové body navazují v EPS', () => {
+    for (const bulge of [1e-4, 1e-5, 1e-6, 3e-6]) {
+      const part: Part = {
+        ...lens,
+        width: 1000,
+        height: 100,
+        shape: {
+          outer: [
+            { x: 0, y: 0, bulge },
+            { x: 1000, y: 0, bulge: 0 },
+            { x: 1000, y: 100, bulge: 0 },
+            { x: 0, y: 100, bulge: 0 },
+          ],
+          holes: [],
+        },
+      };
+      for (const rotation of [0, 33.3]) {
+        const pl = { x: 1234.5, y: 678.9, rotation };
+        const c = placedContours(part, { partId: 'l', instance: 0, ...pl });
+        const la = parse(one(part, { segments: 'lines-arcs' }, pl)).entities;
+        expectSegments(onLayer(la, 'DILY'), c.outer);
+        expectPolyline(onLayer(parse(one(part, {}, pl)).entities, 'DILY')[0]!, c.outer);
+      }
+    }
+  });
+
+  it('$EXTMIN/$EXTMAX zahrnují tabuli, díly i zóny přes okraj', () => {
+    const s2: Sheet = {
+      ...sheet,
+      forbiddenZones: [
+        {
+          id: 'z',
+          polygon: [
+            { x: 950, y: 480 },
+            { x: 1030, y: 480 },
+            { x: 1030, y: 560 },
+          ],
+        },
+      ],
+    };
+    const l: SheetLayout = {
+      sheetId: 's',
+      placements: [{ partId: 'r', instance: 0, x: -20, y: -5, rotation: 0 }],
+    };
+    const header = parse(writeSheetDxf(s2, l, [rect])).header as Record<string, Point>;
+    expectNear(header.$EXTMIN!, { x: -20, y: -5 });
+    expectNear(header.$EXTMAX!, { x: 1030, y: 560 });
+  });
+
+  it('tabulky obsahují vrstvu 0 a styl STANDARD', () => {
+    const dxf = parse(writeSheetDxf(sheet, layout, [shaped, rect]));
+    expect(dxf.tables.layer.layers['0']).toBeDefined();
+    expect(writeSheetDxf(sheet, layout, [shaped, rect])).toMatch(/\r\nSTYLE\r\n2\r\nSTANDARD\r\n/);
+  });
+
+  it('dlouhý text se zkrátí na 255 znaků bez rozdělení \\U+ sekvence', () => {
+    const t = dxfText('ř'.repeat(100));
+    expect(t.length).toBeLessThanOrEqual(255);
+    expect(t).toMatch(/^(\\U\+0159)+$/);
+    expect(dxfText('a'.repeat(300))).toHaveLength(255);
+  });
+});
+
 describe('soubory a ZIP', () => {
   it('název souboru: bez diakritiky, číslo tabule doplněné nulami', () => {
-    expect(sheetDxfFileName('Kuchyň – Novák', 0, 3)).toBe('Kuchyn-Novak-tabule-01.dxf');
-    expect(sheetDxfFileName('plán', 9, 120)).toBe('plan-tabule-010.dxf');
-    expect(sheetDxfFileName('  ', 0, 1)).toBe('plan-tabule-01.dxf');
+    expect(sheetFileName('Kuchyň – Novák', 0, 3, 'dxf')).toBe('Kuchyn-Novak-tabule-01.dxf');
+    expect(sheetFileName('plán', 9, 120, 'svg')).toBe('plan-tabule-010.svg');
+    expect(sheetFileName('  ', 0, 1, 'dxf')).toBe('plan-tabule-01.dxf');
   });
 
   it('výsledek výpočtu → jeden DXF na tabuli → ZIP se stejným obsahem', () => {
@@ -352,7 +500,7 @@ describe('soubory a ZIP', () => {
     expect(files.length).toBe(outcome.result.layouts.length);
     expect(files.length).toBeGreaterThan(1);
     files.forEach((f, i) => {
-      expect(f.name).toBe(sheetDxfFileName('Zakázka 7', i, files.length));
+      expect(f.name).toBe(sheetFileName('Zakázka 7', i, files.length, 'dxf'));
       const dily = onLayer(parse(f.content).entities, 'DILY');
       expect(dily).toHaveLength(outcome.result.layouts[i]!.placements.length);
     });

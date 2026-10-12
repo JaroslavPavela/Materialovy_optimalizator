@@ -1,11 +1,11 @@
-import { strToU8, zipSync } from 'fflate';
 import { pointsNear } from '../geometry/compare.ts';
 import { bulgeToArc } from '../geometry/contour.ts';
-import { ANGLE_EPS } from '../geometry/eps.ts';
+import { ANGLE_EPS, EPS } from '../geometry/eps.ts';
 import { pointsBBox } from '../geometry/polygon.ts';
 import type { Contour, Point, Rect } from '../geometry/types.ts';
 import type { NestingInput, NestingResult, Part, Sheet, SheetLayout } from '../model.ts';
 import { placedContours, placePart } from '../placed.ts';
+import { sheetFileName, type ExportFile } from './files.ts';
 
 /** Vrstvy a jejich barvy (AutoCAD Color Index). */
 export const DXF_LAYERS = {
@@ -28,32 +28,48 @@ export interface DxfOptions {
   readonly labels?: boolean;
 }
 
-export interface DxfFile {
-  readonly name: string;
-  readonly content: string;
-}
-
 const CRLF = '\r\n';
 
-/** Číslo s tečkou, nejvýš 6 desetinných míst, bez exponentu a bez „-0". */
-export function dxfNumber(n: number): string {
+/**
+ * Přesnost zápisu: souřadnice a délky v mm na 6 desetinných míst; úhly ARC
+ * a bulge přesněji, protože jejich chyba se násobí poloměrem / tětivou.
+ */
+const ANGLE_DIGITS = 12;
+const BULGE_DIGITS = 9;
+
+/**
+ * Segment s výškou oblouku pod touto hodnotou se v režimu `lines-arcs` zapíše
+ * jako LINE (odchylka < EPS). Téměř rovný oblouk má obří poloměr a zaokrouhlení
+ * jeho úhlů by posunulo koncové body mimo navazující segmenty.
+ */
+export const DXF_MIN_ARC_SAGITTA = EPS;
+
+/** Nejdelší řetězec v R12. */
+const MAX_STRING = 255;
+
+/** Číslo s tečkou, nejvýš `digits` desetinných míst, bez exponentu a bez „-0". */
+export function dxfNumber(n: number, digits = 6): string {
   if (!Number.isFinite(n)) throw new RangeError(`Neplatné číslo pro DXF: ${n}`);
-  const s = n.toFixed(6).replace(/\.?0+$/, '');
+  const s = n.toFixed(digits).replace(/\.?0+$/, '');
   return s === '-0' ? '0' : s;
 }
 
 /**
  * Text pro R12: znaky mimo ASCII jako \U+XXXX (AutoCAD i CAM je přečtou bez
- * ohledu na kódovou stránku), řídicí znaky jako mezera.
+ * ohledu na kódovou stránku), řídicí znaky jako mezera. Zkrácen na 255 znaků
+ * (limit řetězce R12) bez rozdělení escape sekvence.
  */
 export function dxfText(text: string): string {
   let out = '';
   for (const ch of text) {
     const code = ch.codePointAt(0)!;
-    if (code < 32 || code === 127) out += ' ';
-    else if (code < 127) out += ch;
-    else if (code <= 0xffff) out += `\\U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
-    else out += '?';
+    let piece: string;
+    if (code < 32 || code === 127) piece = ' ';
+    else if (code < 127) piece = ch;
+    else if (code <= 0xffff) piece = `\\U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
+    else piece = '?';
+    if (out.length + piece.length > MAX_STRING) break;
+    out += piece;
   }
   return out;
 }
@@ -67,8 +83,8 @@ const normDeg = (deg: number) => {
 class DxfBuilder {
   private readonly lines: string[] = [];
 
-  pair(code: number, value: string | number): this {
-    this.lines.push(String(code), typeof value === 'number' ? dxfNumber(value) : value);
+  pair(code: number, value: string | number, digits?: number): this {
+    this.lines.push(String(code), typeof value === 'number' ? dxfNumber(value, digits) : value);
     return this;
   }
 
@@ -106,7 +122,8 @@ function writeContour(dxf: DxfBuilder, contour: Contour, layer: DxfLayer, opts: 
   if (opts.segments === 'lines-arcs') {
     contour.forEach((v, i) => {
       const next = contour[(i + 1) % contour.length]!;
-      const arc = bulgeToArc(v, next, v.bulge);
+      const sagitta = (Math.abs(v.bulge) * Math.hypot(next.x - v.x, next.y - v.y)) / 2;
+      const arc = sagitta < DXF_MIN_ARC_SAGITTA ? null : bulgeToArc(v, next, v.bulge);
       if (!arc) {
         if (pointsNear(v, next)) return;
         dxf.entity('LINE', layer).point(v).point(next, 11);
@@ -118,8 +135,8 @@ function writeContour(dxf: DxfBuilder, contour: Contour, layer: DxfLayer, opts: 
         .entity('ARC', layer)
         .point(arc.center)
         .pair(40, arc.radius)
-        .pair(50, normDeg(start))
-        .pair(51, normDeg(start + Math.abs(arc.sweep)));
+        .pair(50, normDeg(start), ANGLE_DIGITS)
+        .pair(51, normDeg(start + Math.abs(arc.sweep)), ANGLE_DIGITS);
     });
     return;
   }
@@ -127,7 +144,9 @@ function writeContour(dxf: DxfBuilder, contour: Contour, layer: DxfLayer, opts: 
   contour.forEach((v, i) => {
     dxf.entity('VERTEX', layer).point(v);
     // Bulge jen u skutečného oblouku – stejný práh jako bulgeToArc (sagita).
-    if (bulgeToArc(v, contour[(i + 1) % contour.length]!, v.bulge)) dxf.pair(42, v.bulge);
+    if (bulgeToArc(v, contour[(i + 1) % contour.length]!, v.bulge)) {
+      dxf.pair(42, v.bulge, BULGE_DIGITS);
+    }
   });
   dxf.entity('SEQEND', layer);
 }
@@ -163,6 +182,7 @@ export function writeSheetDxf(
   const ext = pointsBBox([
     { x: 0, y: 0 },
     { x: sheet.width, y: sheet.height },
+    ...sheet.forbiddenZones.flatMap((z) => z.polygon),
     ...placed.flatMap((p) => [
       { x: p.label.bbox.x, y: p.label.bbox.y },
       { x: p.label.bbox.x + p.label.bbox.width, y: p.label.bbox.y + p.label.bbox.height },
@@ -199,9 +219,24 @@ export function writeSheetDxf(
     .pair(40, 0)
     .pair(0, 'ENDTAB')
     .pair(0, 'TABLE')
+    .pair(2, 'STYLE')
+    .pair(70, '1')
+    .pair(0, 'STYLE')
+    .pair(2, 'STANDARD')
+    .pair(70, '0')
+    .pair(40, 0)
+    .pair(41, 1)
+    .pair(50, 0)
+    .pair(71, '0')
+    .pair(42, 2.5)
+    .pair(3, 'txt')
+    .pair(4, '')
+    .pair(0, 'ENDTAB')
+    .pair(0, 'TABLE')
     .pair(2, 'LAYER')
-    .pair(70, String(layers.length));
-  for (const [name, color] of layers) {
+    .pair(70, String(layers.length + 1));
+  // Vrstva 0 existuje v každém výkresu; některé starší čtečky ji vyžadují.
+  for (const [name, color] of [['0', 7], ...layers] as const) {
     dxf.pair(0, 'LAYER').pair(2, name).pair(70, '0').pair(62, String(color)).pair(6, 'CONTINUOUS');
   }
   dxf.pair(0, 'ENDTAB').pair(0, 'ENDSEC');
@@ -240,39 +275,20 @@ export function writeSheetDxf(
   return dxf.toString();
 }
 
-/** Název souboru: bezpečný název projektu + pořadí tabule doplněné nulami. */
-export function sheetDxfFileName(project: string, index: number, count: number): string {
-  const safe =
-    project
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^A-Za-z0-9_-]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'plan';
-  const digits = Math.max(2, String(count).length);
-  return `${safe}-tabule-${String(index + 1).padStart(digits, '0')}.dxf`;
-}
-
 /** Všechny tabule výsledku – jeden DXF na tabuli. */
 export function writeResultDxf(
   input: NestingInput,
   result: NestingResult,
   project: string,
   opts: DxfOptions = {},
-): DxfFile[] {
+): ExportFile[] {
   const sheets = new Map(input.sheets.map((s) => [s.id, s]));
   return result.layouts.map((layout, i) => {
     const sheet = sheets.get(layout.sheetId);
     if (!sheet) throw new RangeError(`Rozložení odkazuje na neznámou tabuli „${layout.sheetId}".`);
     return {
-      name: sheetDxfFileName(project, i, result.layouts.length),
+      name: sheetFileName(project, i, result.layouts.length, 'dxf'),
       content: writeSheetDxf(sheet, layout, input.parts, opts),
     };
   });
-}
-
-/** Soubory zabalené do ZIP (fflate). */
-export function zipFiles(files: readonly DxfFile[], mtime?: Date): Uint8Array {
-  const entries: Record<string, Uint8Array> = {};
-  for (const f of files) entries[f.name] = strToU8(f.content);
-  return zipSync(entries, { level: 6, ...(mtime && { mtime }) });
 }

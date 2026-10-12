@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 3.2
-Poslední commit: feat: export DXF R12 a ZIP všech tabulí (krok 3.1)
+Poslední commit: fix: opravy z revize DXF writeru (krok 3.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -240,3 +240,9 @@ BLOKOVÁNO: ne
   (R12 nemá UTF-8). Nad rámec kroku: `placedContours` v core/placed.ts
   (obrysy umístěného dílu s oblouky – využije i SVG a krok 4.5) a exportní
   panel v UI (DXF aktuální tabule, ZIP všech) s E2E testem stažení.
+- 3.1 (revize): V režimu `lines-arcs` se segment se sagitou < EPS zapíše jako
+  LINE a úhly ARC mají 12 desetinných míst (bulge 9) – téměř rovné oblouky
+  z CAD mají poloměr 10⁶–10⁸ mm a zaokrouhlení úhlů na 6 míst posunulo konce
+  oblouků až o 1 mm. Doplněna vrstva 0, styl STANDARD, zóny v $EXTMIN/$EXTMAX
+  a zkrácení textu na 255 znaků. Název souboru a ZIP jsou společné
+  v core/export/files.ts (použije i SVG a CSV).
