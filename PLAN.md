@@ -37,7 +37,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       React, DOM ani src/ui|state|worker|storage).
       Hotovo: všechny skripty projdou; ESLint hlásí chybu na zkušebním
       zakázaném importu (pak import odstranit).
-- [ ] 1.2 Ověření licencí všech závislostí (`npm view <balík> license`),
+- [x] 1.2 Ověření licencí všech závislostí (`npm view <balík> license`),
       zápis do docs/zavislosti.md.
       Hotovo: tabulka balík – verze – licence, žádná nepovolená.
 - [ ] 1.3 Datový model `core/model.ts`: Part, Sheet, NestingParams,
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 1.2
-Poslední commit: chore: kostra projektu (krok 1.1)
+Aktuální krok: 1.3
+Poslední commit: docs: ověření licencí závislostí (krok 1.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -160,3 +160,8 @@ BLOKOVÁNO: ne
   eslint-plugin-react-hooks, eslint-plugin-react-refresh, eslint-config-prettier,
   @types/react, @types/react-dom, @types/node.
 - 1.1: Repozitář byl založen `git init` (větev main); remote zatím není nastaven.
+- 1.2: Jako port Clipperu zvolen `clipper-lib` 6.4.2 (Boost Software License 1.0,
+  jak uvádí plán) + typy `@types/clipper-lib` (MIT). Přidán i `@types/papaparse` (MIT).
+- 1.2: Tranzitivně jsou přítomny `lightningcss` (MPL-2.0, přes vite),
+  `caniuse-lite` (CC-BY-4.0) a `minimatch` (BlueOak-1.0.0). Nejde o GPL/AGPL
+  a jsou jen v nástrojích buildu, ne v kódu aplikace – ponecháno, viz docs/zavislosti.md.
