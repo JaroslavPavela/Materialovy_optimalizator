@@ -150,7 +150,11 @@ export function approximateSegment(from: Point, to: Point, bulge: number, tol: n
   if (!arc) return [to];
   const { center, radius, startAngle, sweep } = arc;
   // Odchylka tětivy se středovým úhlem φ je r·(1 − cos(φ/2)).
-  const maxStep = tol >= radius ? Math.PI : 2 * Math.acos(1 - tol / radius);
+  // Aspoň 3 úsečky na celý kruh (oblouk ≥ 180° nikdy jako jediná tětiva).
+  const maxStep = Math.min(
+    (2 * Math.PI) / 3,
+    tol >= radius ? Math.PI : 2 * Math.acos(1 - tol / radius),
+  );
   const sweepRad = (Math.abs(sweep) * Math.PI) / 180;
   const n = Math.max(1, Math.ceil(sweepRad / maxStep - 1e-9));
   const out: Point[] = [];

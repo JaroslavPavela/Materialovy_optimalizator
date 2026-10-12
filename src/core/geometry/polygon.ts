@@ -138,8 +138,16 @@ export function pointInRing(p: Point, ring: Ring): boolean {
  * Na rozdíl od postupného mazání vrcholů se odchylka nesčítá.
  */
 export function simplifyRing(ring: Ring, tol: number): Ring {
+  return simplifyRingWithError(ring, tol).ring;
+}
+
+/**
+ * Jako `simplifyRing`, navíc skutečná největší odchylka vynechaných vrcholů
+ * od výsledku (0, když se nic nevynechalo) – pro přesnou rezervu nafouknutí.
+ */
+export function simplifyRingWithError(ring: Ring, tol: number): { ring: Ring; error: number } {
   const n = ring.length;
-  if (n <= 4) return ring;
+  if (n <= 4) return { ring, error: 0 };
   // Rozdělení na dva otevřené řetězce mezi vrcholem 0 a nejvzdálenějším vrcholem.
   let far = 0;
   let farD = -1;
@@ -152,6 +160,7 @@ export function simplifyRing(ring: Ring, tol: number): Ring {
   });
   const keep = new Uint8Array(n);
   keep[0] = keep[far] = 1;
+  let error = 0;
   const stack: [number, number][] = [
     [0, far],
     [far, n],
@@ -172,8 +181,13 @@ export function simplifyRing(ring: Ring, tol: number): Ring {
     if (best >= 0) {
       keep[best] = 1;
       stack.push([a, best], [best, b]);
+    } else {
+      // Úsek je konečný: jeho vynechané vrcholy leží do `tol` od tětivy.
+      for (let i = a + 1; i < b; i++) {
+        error = Math.max(error, pointSegmentDistance(ring[i]!, pa, pb));
+      }
     }
   }
   const out = ring.filter((_, i) => keep[i]);
-  return out.length >= 3 ? out : ring;
+  return out.length >= 3 ? { ring: out, error } : { ring, error: 0 };
 }

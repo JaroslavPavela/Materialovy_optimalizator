@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 5.3
-Poslední commit: fix: kontrola kontur přes plochy (krok 4.2)
+Poslední commit: fix: opravy z revize tvarů a Minkowského součtu (krok 5.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -323,13 +323,16 @@ BLOKOVÁNO: ne
 - Konec fáze 4: push selhal – repozitář stále nemá nastavený remote. Pokračuji.
 - 5.1: `core/geometry/clipper.ts` (obal clipper-lib: offset, sjednocení,
   rozdíl, průnik, Minkowského součet; mm × 1e4) a `core/nesting/shapes.ts`.
-  Nafouknutí je konzervativní: s/2 + tětivová odchylka oblouků (0,05 mm)
-  + zjednodušení (0,02 mm) + rezerva na zaoblené rohy offsetu (3 × 0,01 mm;
-  Clipper zaokrouhluje počet kroků oblouku a odchylka dosáhne až ≈ 2,25 ×
-  ArcTolerance). Zjednodušení obrysu je Ramer–Douglas–Peucker
-  (`simplifyRing` v polygon.ts) místo Clipper CleanPolygon, u kterého se
-  odchylka postupného mazání vrcholů sčítá. Minkowského součet Clipperu
-  vrací jen pás tažený po hranici – doplněno sjednocení s posunutým A.
+  Nafouknutí o s/2 + skutečnou odchylku aproximace dovnitř (tětivy oblouků
+  0,05 mm jen u dílů s oblouky + naměřená chyba zjednodušení ≤ 0,02 mm).
+  Offset s ostrými rohy (miter, MiterLimit 2 – velmi ostré rohy seříznuté
+  tečně) vždy obsahuje přesné nafouknutí a obdélník nafoukne přesně na
+  (w + s) × (h + s), takže díl „na dělení tabule" se vejde stejně jako
+  v MaxRects. Zjednodušení obrysu je Ramer–Douglas–Peucker (`simplifyRing`
+  v polygon.ts) místo Clipper CleanPolygon, u kterého se odchylka sčítá.
+  Minkowského součet: Clipper vrací jen ∂A ⊕ ∂B, doplněno sjednocení
+  s A + b0 a a0 + B (podle revize – bez a0 + B chyběl vnitřek, když je B
+  větší než A). Zóny se před offsetem sjednotí.
 - 5.2: `core/nesting/nfp.ts`. Referenční bod dílu B = jeho lokální počátek,
   NFP tedy přímo dává posun (x, y) z `Placement`. NFP se počítá z vnějších
   obrysů nafouknutých tvarů (otvory dílů až ve fázi 6 – konzervativní).

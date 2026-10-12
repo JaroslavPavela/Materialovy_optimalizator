@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { polygonsArea } from '../../../src/core/geometry/clipper.ts';
-import { approximateSegment, contourToRing } from '../../../src/core/geometry/contour.ts';
+import { approximateSegment } from '../../../src/core/geometry/contour.ts';
 import {
   pointInRing,
   pointRingDistance,
@@ -26,7 +26,7 @@ const truth = (c: Contour): Point[] =>
   c.flatMap((v, i) => [v, ...approximateSegment(v, c[(i + 1) % c.length]!, v.bulge, 0.001)]);
 
 /** Nafouknutí nad s/2 nejvýš o rezervy (odchylky se mohou i sečíst). */
-const MAX_EXTRA = inflationDelta(0) + NEST_ARC_TOL + NEST_SIMPLIFY_TOL + 1e-3;
+const MAX_EXTRA = NEST_ARC_TOL + NEST_SIMPLIFY_TOL + 1e-3;
 
 /** Protíná lomená čára sama sebe? (vstupy property testu musí být jednoduché) */
 function selfIntersects(pts: readonly Point[]): boolean {
@@ -86,7 +86,7 @@ describe('tvary pro nesting', () => {
     const s = 6;
     const inf = inflatedPartPolygon(plate, s);
     for (const q of truth(plate.shape!.outer)) {
-      expect(pointInRing(q, inf.outer)).toBe(true);
+      expect(pointInRing(q, inf.outer) || pointRingDistance(q, inf.outer) <= 1e-3).toBe(true);
       const d = pointRingDistance(q, inf.outer);
       expect(d).toBeGreaterThanOrEqual(s / 2 - 1e-3);
       expect(d).toBeLessThanOrEqual(s / 2 + MAX_EXTRA);
@@ -113,7 +113,7 @@ describe('tvary pro nesting', () => {
           const part: Part = { ...plate, shape: { outer, holes: [] } };
           const inf = inflatedPartPolygon(part, s);
           for (const q of truth(outer)) {
-            expect(pointInRing(q, inf.outer)).toBe(true);
+            expect(pointInRing(q, inf.outer) || pointRingDistance(q, inf.outer) <= 1e-3).toBe(true);
             expect(pointRingDistance(q, inf.outer)).toBeGreaterThanOrEqual(s / 2 - 1e-3);
           }
         },
@@ -133,10 +133,9 @@ describe('tvary pro nesting', () => {
     };
     const inf = inflatedPartPolygon(rect, 10);
     const d = inflationDelta(10);
-    // Rohy jsou vepsané oblouky – plocha o málo menší než přesná.
-    const exact = (100 + 2 * d) * (50 + 2 * d) - (4 - Math.PI) * d * d;
-    expect(polygonsArea([inf])).toBeLessThanOrEqual(exact);
-    expect(polygonsArea([inf])).toBeGreaterThan(exact - 1);
+    // Bez oblouků a bez zjednodušení: přesně (w + s) × (h + s), ostré rohy.
+    expect(d).toBe(5);
+    expect(polygonsArea([inf])).toBeCloseTo(110 * 60, 6);
   });
 
   it('užitná plocha: tabule − okraj + s/2; zóny nafouknuté o s/2', () => {
@@ -164,7 +163,15 @@ describe('tvary pro nesting', () => {
     expect(polygonsArea([u])).toBeCloseTo(986 * 486, 6);
     const z = inflatedZones(sheet, 6);
     // Zóna drží od každého bodu skutečné zóny ≥ s/2.
-    for (const q of sheet.forbiddenZones[0]!.polygon) {
+    const zp = sheet.forbiddenZones[0]!.polygon;
+    const edgePoints = zp.flatMap((p, i) => {
+      const q = zp[(i + 1) % zp.length]!;
+      return [0, 0.25, 0.5, 0.75].map((t) => ({
+        x: p.x + t * (q.x - p.x),
+        y: p.y + t * (q.y - p.y),
+      }));
+    });
+    for (const q of edgePoints) {
       expect(pointInRing(q, z[0]!.outer)).toBe(true);
       expect(pointRingDistance(q, z[0]!.outer)).toBeGreaterThanOrEqual(3);
     }
@@ -180,6 +187,5 @@ describe('tvary pro nesting', () => {
     const p = base.outer[0]!;
     expect(a.outer[0]!.x).toBeCloseTo(-p.y, 9);
     expect(a.outer[0]!.y).toBeCloseTo(p.x, 9);
-    expect(contourToRing(plate.shape!.outer, 1).length).toBeGreaterThan(0);
   });
 });

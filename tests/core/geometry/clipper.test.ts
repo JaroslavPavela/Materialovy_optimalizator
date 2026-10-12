@@ -36,19 +36,21 @@ describe('clipper', () => {
   });
 
   it('offset čtverce: plocha (a + 2d)² − (4 − π)d², orientace CCW', () => {
-    const [p] = offsetPolygons([sq(0, 0, 100)], 5, 0.01);
+    const [p] = offsetPolygons([sq(0, 0, 100)], 5, 'round', 0.01);
     expect(ringOrientation(p!.outer)).toBe('ccw');
     expect(polygonsArea([p!])).toBeCloseTo(110 * 110 - (4 - Math.PI) * 25, 0);
   });
 
   it('nafouknutí zmenší otvor, velké nafouknutí ho zruší; záporný offset zmenšuje', () => {
     const plate = { outer: sq(0, 0, 100).outer, holes: [sq(40, 40, 20).outer.toReversed()] };
-    const [a] = offsetPolygons([plate], 3, 0.01);
+    const [a] = offsetPolygons([plate], 3);
     expect(a!.holes).toHaveLength(1);
     expect(ringOrientation(a!.holes[0]!)).toBe('cw');
     expect(polygonsArea([{ outer: a!.holes[0]!, holes: [] }])).toBeCloseTo(14 * 14, 6);
-    expect(offsetPolygons([plate], 11, 0.01)[0]!.holes).toEqual([]);
-    expect(polygonsArea(offsetPolygons([sq(0, 0, 100)], -10, 0.01))).toBeCloseTo(6400, 6);
+    expect(offsetPolygons([plate], 11)[0]!.holes).toEqual([]);
+    expect(polygonsArea(offsetPolygons([sq(0, 0, 100)], -10))).toBeCloseTo(6400, 6);
+    // Ostré rohy (výchozí): obdélník zůstane obdélníkem přesně o 2d větším.
+    expect(polygonsArea(offsetPolygons([sq(0, 0, 100, 50)], 5))).toBeCloseTo(110 * 60, 6);
   });
 
   it('sjednocení, rozdíl, průnik', () => {
@@ -60,10 +62,67 @@ describe('clipper', () => {
     expect(ring[0]!.holes).toHaveLength(1);
   });
 
-  it('Minkowského součet čtverců je čtverec součtu', () => {
+  it('Minkowského součet čtverců je čtverec součtu (i když je B větší než A)', () => {
     const [m] = minkowskiSum(sq(0, 0, 10).outer, sq(-2, -3, 4).outer);
     expect(polygonsArea([m!])).toBeCloseTo(196, 6);
+    expect(m!.holes).toEqual([]);
     expect(m!.outer.map((p) => p.x).sort((a, b) => a - b)[0]).toBeCloseTo(-2, 6);
+    expect(polygonsArea(minkowskiSum(sq(0, 0, 4).outer, sq(0, 0, 10).outer))).toBeCloseTo(196, 6);
+    expect(polygonsArea(minkowskiSum(sq(0, 0, 1).outer, sq(0, 0, 100).outer))).toBeCloseTo(
+      10201,
+      6,
+    );
+  });
+
+  it('nekonvexní tvar C: součet je komutativní a dutina zůstane', () => {
+    const c = [
+      [0, 0],
+      [40, 0],
+      [40, 40],
+      [21, 40],
+      [21, 30],
+      [30, 30],
+      [30, 10],
+      [10, 10],
+      [10, 30],
+      [19, 30],
+      [19, 40],
+      [0, 40],
+    ].map(([x, y]) => ({ x: x!, y: y! }));
+    const ab = minkowskiSum(c, sq(0, 0, 6).outer);
+    const ba = minkowskiSum(sq(0, 0, 6).outer, c);
+    expect(polygonsArea(ab)).toBeCloseTo(polygonsArea(ba), 6);
+    expect(ab[0]!.holes).toHaveLength(1);
+    expect(ba[0]!.holes).toHaveLength(1);
+  });
+
+  it('property: součet je komutativní a obsahuje všechny a + b (vrcholy i vnitřní body)', () => {
+    fc.assert(
+      fc.property(arbStarRing(1, 80), arbStarRing(1, 80), (a, b) => {
+        const ab = minkowskiSum(a.ring, b.ring);
+        const ba = minkowskiSum(b.ring, a.ring);
+        const area = polygonsArea(ab);
+        expect(Math.abs(area - polygonsArea(ba))).toBeLessThan(1e-6 * Math.max(1, area));
+        // Body na hranici může zaokrouhlení na 0,1 µm posunout o jednotku ven.
+        const nearBoundary = (p: Point) =>
+          ab.some((poly) =>
+            [poly.outer, ...poly.holes].some((r) => pointRingDistance(p, r) <= 2e-4),
+          );
+        const covered = (p: Point) =>
+          nearBoundary(p) ||
+          ab.some(
+            (poly) =>
+              pointInIntRing(p, poly.outer) !== 0 &&
+              poly.holes.every((h) => pointInIntRing(p, h) !== 1),
+          );
+        for (const pa of [...a.ring, a.center]) {
+          for (const pb of [...b.ring, b.center]) {
+            expect(covered({ x: pa.x + pb.x, y: pa.y + pb.y })).toBe(true);
+          }
+        }
+      }),
+      { numRuns: 60 },
+    );
   });
 
   it('bod v obrysu: uvnitř, na hranici, vně', () => {
