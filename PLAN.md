@@ -84,7 +84,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 3.2 SVG export a tisk/PDF přes tiskové CSS (A4/A3 na šířku,
       jedna tabule na stránku, legenda a souhrn).
 - [x] 3.3 CSV výstup: seznam dílů po tabulích + souhrnný řádek.
-- [ ] 3.4 E2E: výpočet → stažení DXF, SVG a CSV proběhne bez chyby.
+- [x] 3.4 E2E: výpočet → stažení DXF, SVG a CSV proběhne bez chyby.
 
 ## Fáze 4 – Import DXF (umísťování přes obalový obdélník)
 
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 3.4
-Poslední commit: feat: CSV seznam dílů po tabulích (krok 3.3)
+Aktuální krok: 4.1
+Poslední commit: test: E2E stažení DXF, SVG a CSV (krok 3.4)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -257,3 +257,4 @@ BLOKOVÁNO: ne
   Za seznamem prázdný řádek, souhrn (tabulí, využití, umístěno, neumístěno,
   odpad) a blok neumístěných dílů s důvodem. CRLF; text začínající = + - @
   dostane apostrof (ochrana proti vzorcům v Excelu).
+- Konec fáze 3: push selhal – repozitář stále nemá nastavený remote. Pokračuji.

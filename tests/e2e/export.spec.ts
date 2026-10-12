@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { strFromU8, unzipSync } from 'fflate';
 
@@ -103,6 +104,50 @@ test('výpočet → SVG tabule, ZIP SVG a tisk do PDF (strana na tabuli)', async
   const pdf = await page.pdf({ preferCSSPageSize: true });
   const pages = pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? [];
   expect(pages).toHaveLength(sheets + 1);
+
+  expect(errors).toEqual([]);
+});
+
+test('CSV → výpočet → stažení DXF, SVG a CSV bez chyby', async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' || msg.type() === 'warning') errors.push(msg.text());
+  });
+  page.on('pageerror', (err) => errors.push(err.message));
+  await page.goto('/');
+  await page
+    .getByLabel('Soubor CSV s díly')
+    .setInputFiles(
+      fileURLToPath(new URL('../fixtures/csv/excel-cz-strednik-1250.csv', import.meta.url)),
+    );
+  await page.getByRole('button', { name: 'Vypočítat' }).click();
+  await expect(page.getByRole('img', { name: /Plán tabule/ })).toBeVisible();
+  const placed = Number((await page.getByText(/^\d+ \/ \d+ ks$/).innerText()).split(' / ')[0]);
+
+  const save = async (button: string, name: RegExp) => {
+    const pending = page.waitForEvent('download');
+    await page.getByRole('button', { name: button }).click();
+    const d = await pending;
+    expect(d.suggestedFilename()).toMatch(name);
+    expect(await d.failure()).toBeNull();
+    const path = testInfo.outputPath(d.suggestedFilename());
+    await d.saveAs(path);
+    return readFileSync(path);
+  };
+
+  const dxf = (await save('DXF tabule 1', /^narezovy-plan-tabule-01\.dxf$/)).toString('latin1');
+  expect(dxf).toMatch(/^0\r\nSECTION\r\n/);
+  expect(dxf.endsWith('0\r\nEOF\r\n')).toBe(true);
+  expect(dxf.match(/\r\nDILY\r\n/g)?.length).toBeGreaterThan(0);
+
+  const svg = (await save('SVG tabule 1', /^narezovy-plan-tabule-01\.svg$/)).toString('utf8');
+  expect(svg).toMatch(/^<\?xml version="1.0" encoding="UTF-8"\?>\n<svg /);
+
+  const csv = (await save('CSV seznam dílů', /^narezovy-plan-dily\.csv$/)).toString('utf8');
+  expect(csv.startsWith('﻿tabule;formát;díl;počet;šířka;výška;rotace\r\n')).toBe(true);
+  const body = csv.slice(1).split('\r\n').slice(1, csv.slice(1).split('\r\n').indexOf(''));
+  expect(body.reduce((sum, line) => sum + Number(line.split(';')[3]), 0)).toBe(placed);
+  expect(csv).toMatch(/\r\nsouhrn;tabulí;využití;umístěno;neumístěno;odpad;\r\n/);
 
   expect(errors).toEqual([]);
 });
