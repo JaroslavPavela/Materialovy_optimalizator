@@ -83,7 +83,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       Hotovo: test „zapiš → přečti dxf-parserem → stejné souřadnice v EPS".
 - [x] 3.2 SVG export a tisk/PDF přes tiskové CSS (A4/A3 na šířku,
       jedna tabule na stránku, legenda a souhrn).
-- [ ] 3.3 CSV výstup: seznam dílů po tabulích + souhrnný řádek.
+- [x] 3.3 CSV výstup: seznam dílů po tabulích + souhrnný řádek.
 - [ ] 3.4 E2E: výpočet → stažení DXF, SVG a CSV proběhne bez chyby.
 
 ## Fáze 4 – Import DXF (umísťování přes obalový obdélník)
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 3.3
-Poslední commit: feat: export SVG a tisk/PDF (krok 3.2)
+Aktuální krok: 3.4
+Poslední commit: feat: CSV seznam dílů po tabulích (krok 3.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -253,3 +253,7 @@ BLOKOVÁNO: ne
   odstíny se nikdy neopakují u sousedních dílů. Tisk: souhrnná strana
   (využití, tabulky, neumístěné díly) + strana na tabuli s legendou; formát
   A4/A3 na šířku volí uživatel. Navíc ZIP všech SVG.
+- 3.3: Díly stejného druhu a natočení na tabuli jsou sečtené v jednom řádku.
+  Za seznamem prázdný řádek, souhrn (tabulí, využití, umístěno, neumístěno,
+  odpad) a blok neumístěných dílů s důvodem. CRLF; text začínající = + - @
+  dostane apostrof (ochrana proti vzorcům v Excelu).

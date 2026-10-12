@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
+import { writeResultCsv } from '../core/export/csv.ts';
 import { writeResultDxf, writeSheetDxf } from '../core/export/dxf-writer.ts';
-import { sheetFileName, zipFiles } from '../core/export/files.ts';
+import { safeFileStem, sheetFileName, zipFiles } from '../core/export/files.ts';
 import { partColors, writeResultSvg, writeSheetSvg } from '../core/export/svg.ts';
 import { useAppStore } from '../state/store.ts';
 import { download } from './download.ts';
@@ -12,8 +13,9 @@ const PROJECT = 'narezovy-plan';
 const DXF_TYPE = 'application/dxf';
 const SVG_TYPE = 'image/svg+xml';
 const ZIP_TYPE = 'application/zip';
+const CSV_TYPE = 'text/csv;charset=utf-8';
 
-/** Export plánu: DXF a SVG aktuální tabule nebo všech (ZIP), tisk a PDF. */
+/** Export plánu: DXF a SVG aktuální tabule nebo všech (ZIP), CSV seznam dílů, tisk a PDF. */
 export function ExportPanel() {
   const result = useAppStore((s) => s.result);
   const input = useAppStore((s) => s.resultInput);
@@ -92,6 +94,17 @@ export function ExportPanel() {
           }
         >
           SVG všech tabulí (ZIP)
+        </button>
+      </div>
+      <div className="row">
+        <button
+          type="button"
+          disabled={running}
+          onClick={() =>
+            download(`${safeFileStem(PROJECT)}-dily.csv`, writeResultCsv(input, result), CSV_TYPE)
+          }
+        >
+          CSV seznam dílů
         </button>
       </div>
       <div className="row">
