@@ -100,7 +100,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       více souborů najednou.
 - [x] 4.4 Fixtures DXF: generované vlastním writerem + ručně psané okrajové
       případy (nespojené čáry, duplicity, palce, blok, díl s otvory, spline).
-- [ ] 4.5 Nesting přes obalový obdélník (MaxRects), v náhledu a exportu
+- [x] 4.5 Nesting přes obalový obdélník (MaxRects), v náhledu a exportu
       skutečný tvar dílu včetně otvorů a oblouků.
       Hotovo: E2E nahraj DXF → plán → export DXF; testy na všechny fixtures.
 
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 4.5
-Poslední commit: test: vzorky DXF a testy importu (krok 4.4)
+Aktuální krok: 5.1
+Poslední commit: test: E2E DXF → plán → export DXF (krok 4.5)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -316,3 +316,8 @@ BLOKOVÁNO: ne
   oblouků – vzorky se nesmí měnit, zůstal jako případ neuzavřených kontur
   a správný rozvin s normálou −Z je `zrcadleny-rozvin.dxf`. Test hlídá,
   že každý vzorek ve složce má očekávání.
+- 4.5: Nesting přes obalový obdélník, náhled a export se skutečným tvarem
+  vznikly už v krocích 3.1, 3.2 a 4.3 (`placedContours`, `placedPartPaths`);
+  krok doplnil E2E: dva DXF najednou → výpočet → náhled s oblouky a otvory →
+  export DXF → zpětný import dává stejné díly (plochy včetně otvorů).
+- Konec fáze 4: push selhal – repozitář stále nemá nastavený remote. Pokračuji.
