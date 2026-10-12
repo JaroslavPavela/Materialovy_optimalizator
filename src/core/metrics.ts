@@ -1,7 +1,16 @@
 import { contourArea } from './geometry/contour.ts';
 import { EPS } from './geometry/eps.ts';
+import { ringBBox } from './geometry/polygon.ts';
 import type { Rect } from './geometry/types.ts';
-import type { NestingInput, NestingMetrics, Part, SheetLayout, SheetMetrics } from './model.ts';
+import type {
+  NestingInput,
+  NestingMetrics,
+  Part,
+  Sheet,
+  SheetLayout,
+  SheetMetrics,
+} from './model.ts';
+import { placePart } from './placed.ts';
 
 /** Skutečná plocha dílu v mm²: tvar s odečtenými otvory, jinak obdélník. */
 export function partArea(part: Part): number {
@@ -31,6 +40,47 @@ export function largestRemnant(freeRects: readonly Rect[], spacing: number): Rec
     if (!best || r.width * r.height > best.width * best.height + EPS) best = r;
   }
   return best;
+}
+
+/**
+ * Zbytek bez volných obdélníků (tvarový režim): větší z pruhů vpravo a nahoře
+ * od obalových obdélníků dílů, s odstupem rozestupu od dílů i zakázaných zón
+ * a uvnitř tabule zmenšené o okraj. `null`, když žádný pruh nezbývá.
+ */
+export function stripRemnant(input: NestingInput, sheet: Sheet, layout: SheetLayout): Rect | null {
+  const parts = new Map(input.parts.map((p) => [p.id, p]));
+  const s = input.params.spacing;
+  const m = sheet.margin;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of layout.placements) {
+    const part = parts.get(p.partId);
+    if (!part) throw new RangeError(`Umístění odkazuje na neznámý díl „${p.partId}".`);
+    const bb = placePart(part, p).bbox;
+    maxX = Math.max(maxX, bb.x + bb.width);
+    maxY = Math.max(maxY, bb.y + bb.height);
+  }
+  const x0 = layout.placements.length > 0 ? maxX + s : m;
+  const y0 = layout.placements.length > 0 ? maxY + s : m;
+  const candidates: Rect[] = [
+    { x: x0, y: m, width: sheet.width - m - x0, height: sheet.height - 2 * m },
+    { x: m, y: y0, width: sheet.width - 2 * m, height: sheet.height - m - y0 },
+  ];
+  const zones = sheet.forbiddenZones.map((z) => ringBBox(z.polygon));
+  const free = candidates.filter(
+    (r) =>
+      r.width > EPS &&
+      r.height > EPS &&
+      zones.every(
+        (z) =>
+          z.x - s >= r.x + r.width ||
+          r.x >= z.x + z.width + s ||
+          z.y - s >= r.y + r.height ||
+          r.y >= z.y + z.height + s,
+      ),
+  );
+  if (free.length === 0) return null;
+  return free.reduce((a, b) => (b.width * b.height > a.width * a.height + EPS ? b : a));
 }
 
 /** Rozložení tabule, volitelně s volnými obdélníky z MaxRects (pro zbytek). */
@@ -72,7 +122,9 @@ export function computeMetrics(
       partArea: partAreaSum,
       sheetArea,
       utilization: sheetArea > 0 ? partAreaSum / sheetArea : 0,
-      remnant: layout.freeRects ? largestRemnant(layout.freeRects, input.params.spacing) : null,
+      remnant: layout.freeRects
+        ? largestRemnant(layout.freeRects, input.params.spacing)
+        : stripRemnant(input, sheet, layout),
     };
   });
 

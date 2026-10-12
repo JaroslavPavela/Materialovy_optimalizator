@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { remnantSheets } from '../../src/core/remnants.ts';
 import { computeMetrics, largestRemnant, partArea } from '../../src/core/metrics.ts';
 import {
   DEFAULT_NESTING_PARAMS,
@@ -123,14 +124,68 @@ describe('computeMetrics', () => {
     expect(m).toEqual({ sheets: [], utilization: 0, waste: 0, placedCount: 0, unplacedCount: 1 });
   });
 
-  it('bez volných obdélníků (tvarový režim) je zbytek null', () => {
-    const inp = input([part('a', 10, 10)], [sheet()]);
+  it('bez volných obdélníků (tvarový režim): zbytek = větší volný pruh vpravo/nahoře', () => {
+    const placements = [{ partId: 'a', instance: 0, x: 10, y: 10, rotation: 0 }];
+    const s1 = sheet({ margin: 10 });
     const m = computeMetrics(
-      inp,
-      [{ sheetId: 's', placements: [{ partId: 'a', instance: 0, x: 0, y: 0, rotation: 0 }] }],
+      input([part('a', 300, 100)], [s1], 4),
+      [{ sheetId: 's', placements }],
       0,
     );
-    expect(m.sheets[0]!.remnant).toBeNull();
+    // Vpravo 676 × 480, nahoře 980 × 376 → nahoře.
+    expect(m.sheets[0]!.remnant).toEqual({ x: 10, y: 114, width: 980, height: 376 });
+    // Zóna v horním pruhu → pruh vpravo.
+    const zone = {
+      id: 'z',
+      polygon: [
+        { x: 50, y: 300 },
+        { x: 100, y: 300 },
+        { x: 100, y: 350 },
+        { x: 50, y: 350 },
+      ],
+    };
+    const z = computeMetrics(
+      input([part('a', 300, 100)], [{ ...s1, forbiddenZones: [zone] }], 4),
+      [{ sheetId: 's', placements }],
+      0,
+    );
+    expect(z.sheets[0]!.remnant).toEqual({ x: 314, y: 10, width: 676, height: 480 });
+  });
+
+  it('zbytky jako nové tabule: rozměr, příznak, materiál; malé se vynechají', () => {
+    const inp = input(
+      [part('a', 300, 100)],
+      [sheet({ margin: 10, material: 'DTD', thickness: 18 })],
+      4,
+    );
+    const metrics = computeMetrics(
+      inp,
+      [{ sheetId: 's', placements: [{ partId: 'a', instance: 0, x: 10, y: 10, rotation: 0 }] }],
+      0,
+    );
+    const result = {
+      layouts: [
+        { sheetId: 's', placements: [{ partId: 'a', instance: 0, x: 10, y: 10, rotation: 0 }] },
+      ],
+      unplaced: [],
+      metrics,
+    };
+    const sheets = remnantSheets(inp, result, (i) => `z${i}`);
+    expect(sheets).toEqual([
+      {
+        id: 'z0',
+        name: 'Zbytek 980 × 376 z tabule 1 (tabule)',
+        width: 980,
+        height: 376,
+        stock: 1,
+        margin: 0,
+        forbiddenZones: [],
+        remnant: true,
+        material: 'DTD',
+        thickness: 18,
+      },
+    ]);
+    expect(remnantSheets(inp, result, (i) => `z${i}`, 400)).toEqual([]);
   });
 
   it('neznámý díl nebo tabule vyhodí chybu', () => {

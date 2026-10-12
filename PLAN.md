@@ -126,7 +126,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Fáze 6 – Rozšíření
 
 - [x] 6.1 Díl v otvoru jiného dílu (otvory jako další IFP).
-- [ ] 6.2 Zbytky: uložit nevyužitý zbytek tabule jako novou tabuli do skladu
+- [x] 6.2 Zbytky: uložit nevyužitý zbytek tabule jako novou tabuli do skladu
       a nabídnout ho při dalším výpočtu přednostně.
 
 ## Fáze 7 – Dokončení
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 6.2
-Poslední commit: feat: díl v otvoru jiného dílu (krok 6.1)
+Aktuální krok: 7.1
+Poslední commit: feat: uložení zbytků tabulí do skladu (krok 6.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -432,3 +432,11 @@ BLOKOVÁNO: ne
   dřív umístěné díly ani zóny v otvoru být nemohou. Otvor nafouknutého dílu
   je zmenšený o s/2, díl v něm nafouknutý o s/2 → odstup ≥ s. Pojistka
   kandidátů počítá s otvory umístěných dílů.
+- 6.2: Zbytek tabule = obdélník už uvnitř užitné plochy s odstupem od dílů
+  a zón, uloží se jako nová tabule projektu: okraj 0, sklad 1, příznak
+  `remnant`, materiál a tloušťka z původní tabule; zbytky pod 50 mm se
+  vynechají. Výsledky tvarového režimu nemají volné obdélníky MaxRects –
+  zbytek je větší volný pruh vpravo/nahoře (`stripRemnant` v metrics.ts).
+  Přednost zbytků při výběru tabule už měl MaxRects i placer. Ukládá se do
+  seznamu tabulí projektu (ten se ukládá automaticky), ne do knihovny formátů.
+- Konec fáze 6: push selhal – repozitář stále nemá nastavený remote. Pokračuji.

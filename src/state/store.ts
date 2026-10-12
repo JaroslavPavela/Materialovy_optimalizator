@@ -13,6 +13,7 @@ import {
 } from '../core/model.ts';
 import type { NestOutcome, NestProgress } from '../core/nesting/nest.ts';
 import { parseProject, type Project } from '../core/project.ts';
+import { remnantSheets } from '../core/remnants.ts';
 import { createNestingClient, NestingAbortedError, type NestingClient } from '../worker/client.ts';
 
 /** Výsledek načtení jednoho souboru s díly (CSV nebo DXF). */
@@ -84,6 +85,11 @@ export interface AppActions {
   /** Uloží kopii tabule do knihovny; formát se stejným názvem nahradí. */
   saveSheetToLibrary(sheetId: string): void;
   addSheetFromLibrary(libraryId: string): void;
+  /**
+   * Uloží zbytky z posledního výsledku jako nové tabule (sklad 1, přednostně
+   * při dalším výpočtu). Vrátí počet přidaných tabulí.
+   */
+  saveRemnants(): number;
   removeFromLibrary(libraryId: string): void;
   addPart(): void;
   /** Změna polí dílu; `undefined` volitelné pole smaže (materiál, tloušťka). */
@@ -230,6 +236,14 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     const sheet = get().sheetLibrary.find((l) => l.id === libraryId);
     if (!sheet) return;
     set((s) => ({ sheets: [...s.sheets, { ...sheet, id: newId('tabule') }] }));
+  },
+
+  saveRemnants() {
+    const { result, resultInput } = get();
+    if (!result || !resultInput) return 0;
+    const sheets = remnantSheets(resultInput, result, () => newId('zbytek'));
+    if (sheets.length > 0) set((s) => ({ sheets: [...s.sheets, ...sheets] }));
+    return sheets.length;
   },
 
   removeFromLibrary(libraryId) {

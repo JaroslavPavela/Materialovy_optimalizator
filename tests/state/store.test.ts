@@ -187,4 +187,14 @@ describe('store', () => {
     expect(state().status).toBe('done');
     expect(state().result?.metrics.placedCount).toBe(4);
   });
+
+  it('zbytky z výsledku se uloží jako tabule a při dalším výpočtu se použijí přednostně', async () => {
+    state().addPart();
+    await state().calculate();
+    expect(state().saveRemnants()).toBe(1);
+    const remnant = state().sheets[1]!;
+    expect(remnant).toMatchObject({ remnant: true, stock: 1, margin: 0 });
+    await state().calculate();
+    expect(state().result!.layouts[0]!.sheetId).toBe(remnant.id);
+  });
 });

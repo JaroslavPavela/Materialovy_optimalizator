@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { remnantSheets } from '../core/remnants.ts';
 import { UNPLACED_REASON_LABEL, type UnplacedReason } from '../core/model.ts';
 import { useAppStore } from '../state/store.ts';
 import { formatArea, formatPercent } from './format.ts';
@@ -13,7 +15,16 @@ export function ResultSummary() {
         s.resultInput.sheets !== s.sheets ||
         s.resultInput.params !== s.params),
   );
+  const saveRemnants = useAppStore((s) => s.saveRemnants);
+  const [saved, setSaved] = useState<number | null>(null);
+  const [savedFor, setSavedFor] = useState(result);
+  if (savedFor !== result) {
+    // Nový výsledek: hlášení o uložených zbytcích se týkalo předchozího.
+    setSavedFor(result);
+    setSaved(null);
+  }
   if (!result || !input) return null;
+  const remnants = remnantSheets(input, result, (i) => String(i)).length;
 
   const m = result.metrics;
   const partArea = m.sheets.reduce((sum, s) => sum + s.partArea, 0);
@@ -61,6 +72,23 @@ export function ResultSummary() {
           </dd>
         </div>
       </dl>
+      {remnants > 0 && (
+        <div className="row">
+          <button
+            type="button"
+            className="secondary"
+            disabled={saved !== null}
+            onClick={() => setSaved(saveRemnants())}
+          >
+            Uložit zbytky do skladu ({remnants})
+          </button>
+          {saved !== null && (
+            <span className="muted" role="status">
+              Přidáno tabulí ze zbytků: {saved}. Při dalším výpočtu se použijí přednostně.
+            </span>
+          )}
+        </div>
+      )}
       {unplaced.size > 0 && (
         <div className="warnings">
           <p>Neumístěné díly:</p>
