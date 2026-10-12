@@ -87,7 +87,9 @@ describe('bulgeToArc', () => {
         arbPoint,
         fc.double({ min: -5, max: 5, noNaN: true }).filter((b) => Math.abs(b) > 1e-6),
         (a, b, bulge) => {
-          fc.pre(Math.hypot(a.x - b.x, a.y - b.y) > 1e-3);
+          const chord = Math.hypot(a.x - b.x, a.y - b.y);
+          // oblouk se sagitou ≤ SAGITTA_TOL je úsečka (bulgeToArc vrací null)
+          fc.pre(chord > 1e-3 && (Math.abs(bulge) * chord) / 2 > SAGITTA_TOL);
           const arc = bulgeToArc(a, b, bulge)!;
           const m = segmentMidpoint(a, b, bulge);
           for (const p of [a, b, m]) {

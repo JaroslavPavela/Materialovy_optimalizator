@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 2.4
-Poslední commit: feat: metriky využití, odpadu a zbytků (krok 2.3)
+Poslední commit: test: předpoklad property testu oblouků podle sagity (krok 2.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
