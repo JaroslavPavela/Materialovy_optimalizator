@@ -139,3 +139,25 @@ export function contourBBox(contour: Contour): Rect {
   }
   return pointsBBox(pts);
 }
+
+/**
+ * Body segmentu `from → to` s daným bulge: oblouk rozdělený na úsečky tak,
+ * aby se tětiva od oblouku odchýlila nejvýš o `tol` (mm). Vrací body bez
+ * počátečního, s koncovým (úsečka = jen `to`).
+ */
+export function approximateSegment(from: Point, to: Point, bulge: number, tol: number): Point[] {
+  const arc = bulgeToArc(from, to, bulge);
+  if (!arc) return [to];
+  const { center, radius, startAngle, sweep } = arc;
+  // Odchylka tětivy se středovým úhlem φ je r·(1 − cos(φ/2)).
+  const maxStep = tol >= radius ? Math.PI : 2 * Math.acos(1 - tol / radius);
+  const sweepRad = (Math.abs(sweep) * Math.PI) / 180;
+  const n = Math.max(1, Math.ceil(sweepRad / maxStep - 1e-9));
+  const out: Point[] = [];
+  for (let i = 1; i < n; i++) {
+    const t = ((startAngle + (sweep * i) / n) * Math.PI) / 180;
+    out.push({ x: center.x + radius * Math.cos(t), y: center.y + radius * Math.sin(t) });
+  }
+  out.push(to);
+  return out;
+}

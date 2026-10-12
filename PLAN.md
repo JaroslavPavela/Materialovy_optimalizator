@@ -88,7 +88,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Fáze 4 – Import DXF (umísťování přes obalový obdélník)
 
-- [ ] 4.1 `core/import/dxf.ts`: LINE, ARC, CIRCLE, LWPOLYLINE (bulge),
+- [x] 4.1 `core/import/dxf.ts`: LINE, ARC, CIRCLE, LWPOLYLINE (bulge),
       POLYLINE, ELLIPSE, SPLINE (aproximace s tolerancí), INSERT (bloky
       s transformací); $INSUNITS → mm (chybí-li, předpoklad mm + varování);
       TEXT, DIMENSION, HATCH ignorovat.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 4.1
-Poslední commit: test: E2E stažení DXF, SVG a CSV (krok 3.4)
+Aktuální krok: 4.2
+Poslední commit: feat: čtení DXF na segmenty v mm (krok 4.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -258,3 +258,13 @@ BLOKOVÁNO: ne
   odpad) a blok neumístěných dílů s důvodem. CRLF; text začínající = + - @
   dostane apostrof (ochrana proti vzorcům v Excelu).
 - Konec fáze 3: push selhal – repozitář stále nemá nastavený remote. Pokračuji.
+- 4.1: Výstupem kroku jsou segmenty (úsečka nebo oblouk jako bulge, ve WCS
+  v mm); kontury z nich sestaví krok 4.2. Pro CIRCLE, ELLIPSE a SPLINE jsou
+  v dxf-parseru vlastní obsluhy entit – původní ztrácí směr extruze (zrcadlené
+  kružnice z rozvinů plechu) a váhy racionálních splajnů; HATCH, LEADER aj.
+  mají obsluhu, která je jen přeskočí. Podporovaná normála OCS je ±Z, jiná
+  se přeskočí s varováním. Oblouk v bloku s nestejnoměrným měřítkem se
+  aproximuje úsečkami (je z něj elipsa). Elipsy a splajny: adaptivní
+  aproximace s tolerancí 0,01 mm. Text souboru: UTF-8, jinak Windows-1250.
+  Nad rámec kroku: `core/geometry/affine.ts` a `approximateSegment`
+  v contour.ts (použije i krok 5.1).
