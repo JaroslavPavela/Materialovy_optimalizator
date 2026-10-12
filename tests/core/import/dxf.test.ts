@@ -509,14 +509,26 @@ describe('vlastní DXF writer → readDxf', () => {
 });
 
 describe('revize 4.1: okrajové případy', () => {
-  /** Skutečná odchylka křivky od lomené čáry (husté vzorkování parametru). */
+  /**
+   * Skutečná odchylka křivky od lomené čáry (husté vzorkování parametru).
+   * Body i úsečky jdou v pořadí parametru – stačí posuvné okno kolem
+   * naposledy nejbližší úsečky.
+   */
   function maxDeviation(f: (t: number) => Point, pts: readonly Point[]) {
     let worst = 0;
+    let k = 1;
     for (let i = 0; i <= 4000; i++) {
       const p = f(i / 4000);
       let d = Infinity;
-      for (let k = 1; k < pts.length; k++)
-        d = Math.min(d, pointSegmentDistance(p, pts[k - 1]!, pts[k]!));
+      let best = k;
+      for (let j = Math.max(1, k - 3); j < Math.min(pts.length, k + 12); j++) {
+        const dj = pointSegmentDistance(p, pts[j - 1]!, pts[j]!);
+        if (dj < d) {
+          d = dj;
+          best = j;
+        }
+      }
+      k = best;
       worst = Math.max(worst, d);
     }
     return worst;
