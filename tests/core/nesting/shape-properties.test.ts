@@ -8,7 +8,7 @@ import {
 } from '../../../src/core/model.ts';
 import { optimizeShapes } from '../../../src/core/nesting/optimizer.ts';
 import { defaultShapeOrder, placeShapes, ShapeContext } from '../../../src/core/nesting/placer.ts';
-import { arbForbiddenZones, arbShapePart } from '../arbitraries.ts';
+import { arbCombPart, arbForbiddenZones, arbShapePart } from '../arbitraries.ts';
 import { shapeInvariantViolations } from './invariants.ts';
 
 /** Malá tabule, ať se díly tlačí a vzniká hodně dotyků. */
@@ -32,15 +32,22 @@ const arbInput: fc.Arbitrary<NestingInput> = fc
   .record({
     parts: fc
       .integer({ min: 1, max: 4 })
-      .chain((n) => fc.tuple(...Array.from({ length: n }, (_, i) => arbShapePart(`p${i}`)))),
+      .chain((n) =>
+        fc.tuple(
+          ...Array.from({ length: n }, (_, i) =>
+            fc.oneof(arbShapePart(`p${i}`), arbCombPart(`p${i}`)),
+          ),
+        ),
+      ),
     sheet: arbSmallSheet,
+    second: fc.option(arbSmallSheet, { nil: undefined }),
     spacing: fc.constantFrom(0, 1, 3.5, 8),
     freeRotationStep: fc.constantFrom(90, 45, 30),
     seed: fc.integer({ min: 0, max: 1000 }),
   })
-  .map(({ parts, sheet, spacing, freeRotationStep, seed }) => ({
+  .map(({ parts, sheet, second, spacing, freeRotationStep, seed }) => ({
     parts,
-    sheets: [sheet],
+    sheets: second ? [sheet, { ...second, id: 's2', name: 'S2' }] : [sheet],
     params: { ...DEFAULT_NESTING_PARAMS, spacing, freeRotationStep, seed, mode: 'shape' as const },
   }))
   .filter((input) => validateNestingInput(input).length === 0);

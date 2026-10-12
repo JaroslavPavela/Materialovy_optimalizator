@@ -389,6 +389,17 @@ const hasFreeRects = (r: ComparableResult) => r.layouts.at(-1)?.freeRects !== un
  * obdélníků umístěných dílů (v ploše tabule bez okraje).
  */
 function lastStripArea(input: NestingInput, r: ComparableResult): number {
+  const cached = stripCache.get(r);
+  if (cached !== undefined) return cached;
+  const v = computeStripArea(input, r);
+  stripCache.set(r, v);
+  return v;
+}
+
+/** Pruh se pro každý výsledek počítá jednou (třídění populace GA ho volá často). */
+const stripCache = new WeakMap<ComparableResult, number>();
+
+function computeStripArea(input: NestingInput, r: ComparableResult): number {
   const last = r.layouts.at(-1);
   if (!last) return 0;
   const sheet = input.sheets.find((s) => s.id === last.sheetId)!;
@@ -427,6 +438,8 @@ export function compareRectResults(
   if (a.layouts.length !== b.layouts.length) return a.layouts.length - b.layouts.length;
   // Zbytek: u dvou výsledků MaxRects největší volný obdélník; jinak (tvarový
   // výsledek nemá volné obdélníky) pro oba stejně – volný pruh na poslední tabuli.
+  // Smíšené kritérium není tranzitivní; třídí se ale vždy jen výsledky jednoho
+  // druhu (MaxRects mezi sebou, populace GA mezi sebou).
   const rects = hasFreeRects(a) && hasFreeRects(b);
   const remA = rects ? lastRemnantArea(a) : lastStripArea(input, a);
   const remB = rects ? lastRemnantArea(b) : lastStripArea(input, b);

@@ -374,3 +374,45 @@ export const arbShapePart = (id: string): fc.Arbitrary<Part> =>
       ]);
       return !ringSelfIntersects(dense);
     });
+
+/**
+ * Hřeben: obdélníkový hřbet s 3–15 hlubokými zuby (hluboké konkávy, desítky
+ * vrcholů – prověří zjednodušení obrysu i do sebe zapadající díly).
+ */
+export const arbCombPart = (id: string): fc.Arbitrary<Part> =>
+  fc
+    .record({
+      teeth: fc.integer({ min: 3, max: 15 }),
+      tooth: fc.integer({ min: 4, max: 12 }),
+      gap: fc.integer({ min: 4, max: 12 }),
+      depth: fc.integer({ min: 20, max: 80 }),
+      spine: fc.integer({ min: 8, max: 20 }),
+      quantity: fc.integer({ min: 1, max: 3 }),
+      rotation: fc.constantFrom<RotationMode>('ortho', 'flip', 'locked', 'free'),
+    })
+    .map(({ teeth, tooth, gap, depth, spine, quantity, rotation }) => {
+      const w = teeth * tooth + (teeth - 1) * gap;
+      const pts: { x: number; y: number }[] = [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+      ];
+      for (let k = teeth - 1; k >= 0; k--) {
+        const x0 = k * (tooth + gap);
+        pts.push({ x: x0 + tooth, y: spine + depth }, { x: x0, y: spine + depth });
+        if (k > 0) pts.push({ x: x0, y: spine }, { x: x0 - gap, y: spine });
+      }
+      // Pořadí vrcholů: dolní hrana, pak zuby zprava doleva – CCW.
+      const outer = [pts[0]!, pts[1]!, { x: w, y: spine }, ...pts.slice(2)].map((p) => ({
+        ...p,
+        bulge: 0,
+      }));
+      return {
+        id,
+        name: `Hřeben ${id}`,
+        width: w,
+        height: spine + depth,
+        quantity,
+        rotation,
+        shape: { outer, holes: [] },
+      };
+    });

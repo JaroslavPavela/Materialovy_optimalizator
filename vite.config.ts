@@ -7,6 +7,8 @@ export default defineConfig({
   worker: { format: 'es' },
   test: {
     include: ['tests/**/*.test.ts'],
+    // Benchmark se spouští zvlášť (`npm run bench`) – trvá desítky sekund.
+    exclude: process.argv.some((a) => a.includes('tests/bench')) ? [] : ['tests/bench/**'],
     environment: 'node',
   },
 });

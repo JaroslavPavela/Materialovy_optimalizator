@@ -1,10 +1,6 @@
-import {
-  differencePolygons,
-  minkowskiSum,
-  offsetPolygons,
-  unionPolygons,
-} from '../geometry/clipper.ts';
+import { differencePolygons, offsetPolygons } from '../geometry/clipper.ts';
 import { EPS } from '../geometry/eps.ts';
+import { minkowskiSumFast } from '../geometry/minkowski.ts';
 import { ringBBox } from '../geometry/polygon.ts';
 import { rotatePolygon, translatePolygon } from '../geometry/transform.ts';
 import type { Point, Polygon, Rect, Ring } from '../geometry/types.ts';
@@ -27,7 +23,7 @@ export const SLACK = EPS / 4;
  * Otvory A se neuvažují (díl v otvoru jiného dílu řeší fáze 6).
  */
 export function nfp(a: Ring, b: Ring): Polygon[] {
-  return minkowskiSum(
+  return minkowskiSumFast(
     a,
     b.map((p) => ({ x: -p.x, y: -p.y })),
   );
@@ -90,10 +86,12 @@ export function subtractObstacles(
   obstacles: readonly Obstacle[],
 ): Polygon[] {
   if (obstacles.length === 0 || region.length === 0) return [...region];
-  const blocked = unionPolygons(
+  // Bez předchozího sjednocení: rozdíl s pravidlem nonzero bere překrývající
+  // se NFP správně (otvory NFP jsou CW, kapsa jiné překážky zůstane obsazená).
+  return differencePolygons(
+    region,
     obstacles.flatMap((o) => o.nfp.map((p) => translatePolygon(p, o.at.x, o.at.y))),
   );
-  return differencePolygons(region, blocked);
 }
 
 /**

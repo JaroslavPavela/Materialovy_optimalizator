@@ -9,10 +9,12 @@ import {
   type Part,
   type Sheet,
 } from '../../../src/core/model.ts';
+import { SLACK } from '../../../src/core/nesting/nfp.ts';
 import {
   defaultShapeOrder,
   placeShapes,
   ShapeContext,
+  ShapeSheet,
   shapeUnplaceableReason,
 } from '../../../src/core/nesting/placer.ts';
 import { partPolygon } from '../../../src/core/nesting/shapes.ts';
@@ -216,4 +218,19 @@ describe('regrese z revize placeru', () => {
       expect(shapeInvariantViolations(inp, run(inp))).toEqual([]);
     },
   );
+});
+
+describe('pojistka ověření kandidáta', () => {
+  it('zamítne překryv rohem (0,5 mm), pustí dotyk a převis v toleranci skládání', () => {
+    const inp = input([rect('a', 100, 100, { rotation: 'locked' })], [sheet()], 0);
+    const ctx = new ShapeContext(inp);
+    const s = new ShapeSheet(ctx, inp.sheets[0]!);
+    const part = inp.parts[0]!;
+    const at = (x: number, y: number) => ({ at: { x, y }, rotation: 0, bottom: y, left: x });
+    s.place(part, at(10, 10));
+    expect(s.fits(part, at(109.5, 109.5))).toBe(false);
+    expect(s.fits(part, at(110, 10))).toBe(true);
+    expect(s.fits(part, at(110 - SLACK, 10))).toBe(true);
+    expect(s.fits(part, at(110 - 2 * EPS, 10))).toBe(false);
+  });
 });

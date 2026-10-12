@@ -119,7 +119,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       plochy, vzdálenost dílů ≥ rozestup − EPS.
 - [x] 5.6 UI: volba režimu (obdélníkový / tvarový), průběh, tlačítko
       „Zastavit a použít nejlepší".
-- [ ] 5.7 Výkon: benchmark 200 dílů / 10 různých tvarů; první výsledek
+- [x] 5.7 Výkon: benchmark 200 dílů / 10 různých tvarů; první výsledek
       do 5 s, výsledek tvarového režimu nesmí být horší než přes obalový
       obdélník. Při nesplnění optimalizovat (cache, zjednodušení).
 
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 5.7
-Poslední commit: feat: volba tvarového režimu a časového limitu v UI (krok 5.6)
+Aktuální krok: 6.1
+Poslední commit: perf: rychlý Minkowski, přerušitelný optimalizátor a opravy z revize (krok 5.7)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -403,3 +403,24 @@ BLOKOVÁNO: ne
 - 5.6: Volba režimu a časový limit (v sekundách) jsou v panelu Parametry,
   průběh ukazuje procenta podle času; „Zastavit a použít nejlepší" existovalo
   od kroku 2.5. Build hlásí varování o bloku > 500 kB – řeší krok 7.3.
+- 5.7: Benchmark `npm run bench` (tests/bench, mimo běžnou sadu): 200 dílů
+  z 10 hvězdicových tvarů s oblouky – první výsledek 23 ms (MaxRects),
+  tvarově 1 tabule / využití 41 % proti 2 tabulím / 21 % přes obalové
+  obdélníky. Optimalizace: Minkowského součet přes konvexní rozklad
+  (`core/geometry/minkowski.ts`: triangulace uší + Hertel–Mehlhorn, součet
+  konvexních polygonů, sjednocení) místo Clipper MinkowskiSum (3–5× rychleji,
+  Clipper zůstal jako záloha a reference v testech); odečítání NFP bez
+  předchozího sjednocení (nonzero). Placer je generátor (krok po kusu) a GA
+  i `nestSteps` jím propouštějí „tiky" nejvýš po 50 ms – časový limit
+  i „Zastavit" fungují uprostřed vyhodnocení; výchozí jedinec doběhne vždy.
+  Podle revize 5.4: turnaj bere rodiče z předchozí generace (bral z nové);
+  pojistka kandidátů měří hloubku (tvary zmenšené o EPS/2, průnik ≤ 1e-6 mm²)
+  a prochází všechny kandidáty; zjednodušení obrysu nejvýš 0,2 mm a strop
+  64 vrcholů (dřív neomezená tolerance vyplnila hluboké konkávy hřebenů);
+  pruh zbytku se počítá jednou na výsledek. Tolerance zaoblení u volně
+  natáčených dílů je 0,05 mm (rezerva 0,15 mm na stranu) kvůli počtu vrcholů.
+  Známá omezení: placer pro 200 dílů trvá ~10 s (s volnou rotací ~30 s),
+  takže GA u velkých úloh stihne v limitu jen pár vyhodnocení; díl přesně
+  na míru do zářezu jiného dílu se neumístí (štěrbinu nulové šířky odstraní
+  už sjednocení v Minkowského součtu).
+- Konec fáze 5: push selhal – repozitář stále nemá nastavený remote. Pokračuji.

@@ -101,7 +101,11 @@ describe('tvarový režim', () => {
 
   it('obdélníky, pak optimalizátor; průběh roste do 1; nikdy horší než obdélníkový režim', () => {
     const shapeMode = { ...input, params: { ...input.params, mode: 'shape' as const } };
-    const steps = nestSteps(shapeMode, { ga: { maxGenerations: 2, populationSize: 4 } });
+    // Pevné hodiny: žádné tiky ani časový limit – počet kroků je dán generacemi.
+    const steps = nestSteps(shapeMode, {
+      now: () => 0,
+      ga: { maxGenerations: 2, populationSize: 4 },
+    });
     const fractions: number[] = [];
     let next = steps.next();
     while (!next.done) {

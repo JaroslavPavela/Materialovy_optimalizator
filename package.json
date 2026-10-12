@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "bench": "vitest run tests/bench"
   },
   "dependencies": {
     "clipper-lib": "^6.4.2",

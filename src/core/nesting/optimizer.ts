@@ -2,7 +2,7 @@ import type { NestingInput } from '../model.ts';
 import { compareRectResults } from './maxrects.ts';
 import {
   defaultShapeOrder,
-  placeShapes,
+  placeShapesSteps,
   type ShapeContext,
   type ShapeItem,
   type ShapeResult,
@@ -39,11 +39,17 @@ export interface GaOptions {
   readonly maxGenerations?: number;
 }
 
+/**
+ * Krok optimalizátoru: dokončené vyhodnocení jedince (`evaluated`), nebo jen
+ * „tik" uprostřed skládání (předání řízení – výpočet jde přerušit).
+ */
 export interface GaStep {
   readonly evaluations: number;
   readonly generation: number;
-  readonly best: ShapeResult;
-  /** Zlepšil tento krok nejlepší výsledek? */
+  /** Nejlepší dosavadní výsledek (`null`, dokud nedoběhne první jedinec). */
+  readonly best: ShapeResult | null;
+  readonly evaluated: boolean;
+  /** Zlepšilo toto vyhodnocení nejlepší výsledek? */
   readonly improved: boolean;
 }
 
@@ -96,8 +102,8 @@ export function* optimizeShapes(
   const rnd = mulberry32(input.params.seed);
   const rotations = items.map((it) => ctx.rotations(it.part));
 
-  const evaluate = (ind: Individual): ShapeResult =>
-    placeShapes(
+  const evaluate = (ind: Individual) =>
+    placeShapesSteps(
       ctx,
       ind.order.map((k, pos) => {
         const r = ind.rotation[pos];
@@ -132,17 +138,32 @@ export function* optimizeShapes(
     rotation: items.map(() => null),
   };
   let population: { ind: Individual; result: ShapeResult }[] = [];
+  const genes = new WeakMap<Individual, Map<number, number | null>>();
+  const rotationsOf = (ind: Individual) => {
+    let m = genes.get(ind);
+    if (!m) {
+      m = new Map(ind.order.map((k, pos) => [k, ind.rotation[pos] ?? null]));
+      genes.set(ind, m);
+    }
+    return m;
+  };
   let best: ShapeResult | null = null;
   let evaluations = 0;
   let generation = 0;
 
-  const add = function* (ind: Individual) {
-    const result = evaluate(ind);
+  const add = function* (ind: Individual): Generator<GaStep, void, void> {
+    const steps = evaluate(ind);
+    let next = steps.next();
+    while (!next.done) {
+      yield { evaluations, generation, best, evaluated: false, improved: false };
+      next = steps.next();
+    }
+    const result = next.value;
     evaluations++;
     const improved = !best || better(result, best);
     if (improved) best = result;
     population.push({ ind, result });
-    yield { evaluations, generation, best: best!, improved };
+    yield { evaluations, generation, best, evaluated: true, improved };
   };
 
   yield* add(seed);
@@ -153,9 +174,11 @@ export function* optimizeShapes(
     generation++;
     population.sort((a, b) => compareRectResults(input, a.result, b.result));
     const elite = population[0]!;
+    // Rodiče z předchozí generace (ne z právě vznikajících potomků).
+    const prev = population;
     const tournament = () => {
-      const a = population[Math.floor(rnd() * population.length)]!;
-      const b = population[Math.floor(rnd() * population.length)]!;
+      const a = prev[Math.floor(rnd() * prev.length)]!;
+      const b = prev[Math.floor(rnd() * prev.length)]!;
       return compareRectResults(input, a.result, b.result) <= 0 ? a : b;
     };
     population = [elite];
@@ -164,10 +187,9 @@ export function* optimizeShapes(
       const p1 = tournament().ind;
       const p2 = tournament().ind;
       const order = orderCrossover(p1.order, p2.order, rnd);
-      // Natočení putuje s kusem: z rodiče, ze kterého kus v potomkovi pochází.
-      const rotOf = (ind: Individual) => new Map(ind.order.map((k, pos) => [k, ind.rotation[pos]]));
-      const r1 = rotOf(p1);
-      const r2 = rotOf(p2);
+      // Natočení putuje s kusem: gen kusu náhodně od jednoho z rodičů.
+      const r1 = rotationsOf(p1);
+      const r2 = rotationsOf(p2);
       const rotation = order.map((k) => ((rnd() < 0.5 ? r1 : r2).get(k) ?? null) as number | null);
       yield* add(mutate({ order, rotation }));
     }

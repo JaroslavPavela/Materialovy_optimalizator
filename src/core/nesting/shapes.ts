@@ -2,6 +2,7 @@ import { offsetPolygons, unionPolygons } from '../geometry/clipper.ts';
 import { bulgeToArc, contourBBox, contourToRing } from '../geometry/contour.ts';
 import { orientRing, rectToPolygon, ringArea, simplifyRingWithError } from '../geometry/polygon.ts';
 import { rotatePolygon } from '../geometry/transform.ts';
+import { EPS } from '../geometry/eps.ts';
 import type { Contour, Polygon } from '../geometry/types.ts';
 import { allowedRotations, type Part, type Sheet } from '../model.ts';
 import { partContours } from '../placed.ts';
@@ -118,7 +119,14 @@ export function inflatedZones(sheet: Sheet, spacing: number): Polygon[] {
 }
 
 /** Nejvýš tolik vrcholů vnějšího obrysu pro NFP (Minkowski je kvadratický). */
-export const MAX_NEST_VERTICES = 40;
+export const MAX_NEST_VERTICES = 64;
+/** Největší tolerance zjednodušení obrysu kvůli počtu vrcholů (mm). */
+const MAX_SIMPLIFY = 0.2;
+
+/** Zmenšení o EPS/2 pro ověření kandidátů placeru (zaoblené rohy = přesně). */
+export function shrinkForCheck(polys: readonly Polygon[]): Polygon[] {
+  return offsetPolygons(polys, -EPS / 2, 'round', EPS / 8);
+}
 
 /**
  * Omezí počet vrcholů vnějšího obrysu konzervativně: zjednoduší ho
@@ -128,9 +136,11 @@ export const MAX_NEST_VERTICES = 40;
  */
 export function boundComplexity(poly: Polygon, maxVertices = MAX_NEST_VERTICES): Polygon {
   if (poly.outer.length <= maxVertices) return poly;
-  for (let tol = 0.05; ; tol *= 2) {
+  // Tolerance nejvýš MAX_SIMPLIFY mm – raději víc vrcholů než vyplněné konkávy
+  // (hřeben by jinak přerostl i svůj obalový obdélník).
+  for (let tol = 0.025; ; tol *= 2) {
     const s = simplifyRingWithError(poly.outer, tol);
-    if (s.ring.length > maxVertices && tol < 1e3) continue;
+    if (s.ring.length > maxVertices && tol < MAX_SIMPLIFY) continue;
     const grown = offsetPolygons([{ outer: s.ring, holes: poly.holes }], s.error);
     if (grown.length === 0) return poly;
     return grown.reduce((a, b) => (ringArea(b.outer) > ringArea(a.outer) ? b : a));
@@ -141,6 +151,7 @@ export function boundComplexity(poly: Polygon, maxVertices = MAX_NEST_VERTICES):
 export class ShapeCache {
   private readonly base = new Map<string, Polygon>();
   private readonly rotated = new Map<string, Polygon>();
+  private readonly shrunkCache = new Map<string, Polygon>();
   private readonly spacing: number;
   private readonly opts: ShapeOptions;
 
@@ -165,6 +176,21 @@ export class ShapeCache {
         inflatedPartPolygon(part, this.spacing, this.opts, offAxis ? 'round' : 'miter'),
       );
       this.base.set(part.id, p);
+    }
+    return p;
+  }
+
+  /** Nafouknutý díl otočený a zmenšený o EPS/2 (ověření kandidátů placeru). */
+  shrunk(part: Part, rotation: number): Polygon {
+    const key = `${part.id}\u0000${rotation}`;
+    let p = this.shrunkCache.get(key);
+    if (!p) {
+      const s = shrinkForCheck([this.at(part, rotation)]);
+      p =
+        s.length > 0
+          ? s.reduce((a, b) => (ringArea(b.outer) > ringArea(a.outer) ? b : a))
+          : this.at(part, rotation);
+      this.shrunkCache.set(key, p);
     }
     return p;
   }

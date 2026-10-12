@@ -46,6 +46,9 @@ export function rectResultToNesting(input: NestingInput, r: MaxRectsResult): Nes
   };
 }
 
+/** Jak často nejvýš vydat průběh uprostřed skládání (ms). */
+const TICK_MS = 50;
+
 export interface NestOptions {
   /** Hodiny v ms (výchozí Date.now) – časový limit optimalizátoru. */
   readonly now?: () => number;
@@ -98,28 +101,36 @@ export function* nestSteps(
 
   if (shape) {
     const ga = optimizeShapes(new ShapeContext(input), opts.ga);
+    let lastYield = now();
     for (;;) {
       const next = ga.next();
       if (next.done) break;
-      const r = next.value.best;
-      if (next.value.improved) {
+      const { best: r, evaluated, improved, evaluations } = next.value;
+      if (evaluated && improved && r) {
         consider(r, () => ({
           layouts: r.layouts,
           unplaced: r.unplaced,
           metrics: computeMetrics(input, r.layouts, r.unplaced.length),
         }));
       }
-      step++;
-      const elapsed = now() - start;
-      yield {
-        step,
-        totalSteps: Math.max(totalSteps, step + 1),
-        fraction: Math.min(1, rectShare + (1 - rectShare) * (elapsed / limit)),
-        best: bestResult!,
-      };
-      if (elapsed >= limit) {
+      const t = now();
+      const elapsed = t - start;
+      // Časový limit: rozpracované vyhodnocení se zahodí, výchozí jedinec doběhne vždy.
+      if (elapsed >= limit && evaluations >= 1 && r) {
         ga.return(r);
         break;
+      }
+      // Tiky uprostřed skládání se hlásí nejvýš jednou za TICK_MS (worker mezi
+      // kroky přijímá zastavení), dokončená vyhodnocení vždy.
+      if (evaluated || t - lastYield >= TICK_MS) {
+        lastYield = t;
+        step++;
+        yield {
+          step,
+          totalSteps: Math.max(totalSteps, step + 1),
+          fraction: Math.min(1, rectShare + (1 - rectShare) * (elapsed / limit)),
+          best: bestResult!,
+        };
       }
     }
   }

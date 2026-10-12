@@ -2,7 +2,7 @@ import { EPS } from '../geometry/eps.ts';
 import { intersectPolygons, polygonsArea } from '../geometry/clipper.ts';
 import { polygonBBox, ringBBox } from '../geometry/polygon.ts';
 import { translatePolygon } from '../geometry/transform.ts';
-import type { Point, Polygon, Ring } from '../geometry/types.ts';
+import type { Point, Polygon, Rect } from '../geometry/types.ts';
 import {
   allowedRotations,
   sheetMatchesPart,
@@ -23,7 +23,7 @@ import {
   subtractObstacles,
   type Obstacle,
 } from './nfp.ts';
-import { inflatedZones, ShapeCache } from './shapes.ts';
+import { inflatedZones, ShapeCache, shrinkForCheck } from './shapes.ts';
 
 /** Kus dílu k umístění; `rotation` = preferované natočení (gen optimalizátoru). */
 export interface ShapeItem {
@@ -43,11 +43,25 @@ export class ShapeContext {
   readonly shapes: ShapeCache;
   readonly nfps: NfpCache;
   private readonly zones = new Map<string, Polygon[]>();
+  private readonly shrunkZones = new Map<
+    string,
+    { readonly poly: Polygon; readonly bbox: Rect }[]
+  >();
 
   constructor(input: NestingInput) {
     this.input = input;
     this.shapes = new ShapeCache(input.params.spacing, {}, input.params.freeRotationStep);
     this.nfps = new NfpCache(this.shapes);
+  }
+
+  /** Zóny zmenšené o EPS/2 s obalem – pro ověření kandidátů (`ShapeSheet.fits`). */
+  shrunkZonesOf(sheet: Sheet): { readonly poly: Polygon; readonly bbox: Rect }[] {
+    let z = this.shrunkZones.get(sheet.id);
+    if (!z) {
+      z = shrinkForCheck(this.zonesOf(sheet)).map((poly) => ({ poly, bbox: polygonBBox(poly) }));
+      this.shrunkZones.set(sheet.id, z);
+    }
+    return z;
   }
 
   zonesOf(sheet: Sheet): Polygon[] {
@@ -68,24 +82,18 @@ interface Placed {
   readonly part: Part;
   readonly rotation: number;
   readonly at: Point;
+  /** Tvar zmenšený o EPS/2 na místě (pro ověření kandidátů) a jeho obal. */
+  readonly poly: Polygon;
+  readonly bbox: Rect;
 }
 
 /** Kandidát umístění: poloha obalového obdélníku pro porovnání „dole, vlevo". */
-interface Candidate {
+export interface Candidate {
   readonly at: Point;
   readonly rotation: number;
   readonly bottom: number;
   readonly left: number;
 }
-
-/** Kolik nejlepších kandidátů nejvýš ověřit průnikem, než se díl vzdá. */
-const MAX_CHECKED = 50;
-
-const ringPerimeter = (r: Ring) =>
-  r.reduce(
-    (s, p, i) => s + Math.hypot(r[(i + 1) % r.length]!.x - p.x, r[(i + 1) % r.length]!.y - p.y),
-    0,
-  );
 
 /** Je kandidát `a` níž (a při shodě víc vlevo) než `b`? */
 const lower = (a: Candidate, b: Candidate) =>
@@ -158,35 +166,33 @@ export class ShapeSheet {
     candidates.sort((a, b) => (lower(a, b) ? -1 : lower(b, a) ? 1 : 0));
     // Pojistka: kandidát se ověří skutečným průnikem nafouknutých tvarů –
     // numerický artefakt v NFP nesmí vést k dílu položenému přes jiný.
-    for (const c of candidates.slice(0, MAX_CHECKED)) {
+    for (const c of candidates) {
       if (this.fits(part, c)) return c;
     }
     return null;
   }
 
   /**
-   * Nepřekrývá se díl v poloze `c` s umístěnými díly ani se zónami víc, než
-   * dovoluje tolerance skládání? (plocha ≤ EPS × obvod = průměrná hloubka EPS)
+   * Nepřekrývá se díl v poloze `c` s umístěnými díly ani se zónami? Měří se
+   * hloubka, ne plocha: tvary zmenšené o EPS/2 se nesmí protínat (dotyk
+   * i převis v toleranci skládání zmizí, skutečný překryv i v rohu zůstane).
    */
-  private fits(part: Part, c: Candidate): boolean {
-    const { shapes } = this.ctx;
-    const b = translatePolygon(shapes.at(part, c.rotation), c.at.x, c.at.y);
+  fits(part: Part, c: Candidate): boolean {
+    const b = translatePolygon(this.ctx.shapes.shrunk(part, c.rotation), c.at.x, c.at.y);
     const bb = polygonBBox(b);
-    const tol = EPS * ringPerimeter(b.outer);
-    const overlaps = (other: Polygon) => {
-      const ob = polygonBBox(other);
-      if (ob.x > bb.x + bb.width || bb.x > ob.x + ob.width) return false;
-      if (ob.y > bb.y + bb.height || bb.y > ob.y + ob.height) return false;
-      return polygonsArea(intersectPolygons([b], [{ outer: other.outer, holes: [] }])) > tol;
-    };
-    for (const p of this.placed) {
-      if (overlaps(translatePolygon(shapes.at(p.part, p.rotation), p.at.x, p.at.y))) return false;
-    }
-    return !this.ctx.zonesOf(this.sheet).some(overlaps);
+    const hits = (o: { readonly poly: Polygon; readonly bbox: Rect }) =>
+      !(
+        o.bbox.x > bb.x + bb.width ||
+        bb.x > o.bbox.x + o.bbox.width ||
+        o.bbox.y > bb.y + bb.height ||
+        bb.y > o.bbox.y + o.bbox.height
+      ) && polygonsArea(intersectPolygons([b], [{ outer: o.poly.outer, holes: [] }])) > 1e-6;
+    return !this.placed.some(hits) && !this.ctx.shrunkZonesOf(this.sheet).some(hits);
   }
 
   place(part: Part, c: Candidate): void {
-    this.placed.push({ part, rotation: c.rotation, at: c.at });
+    const poly = translatePolygon(this.ctx.shapes.shrunk(part, c.rotation), c.at.x, c.at.y);
+    this.placed.push({ part, rotation: c.rotation, at: c.at, poly, bbox: polygonBBox(poly) });
   }
 }
 
@@ -205,7 +211,11 @@ interface Fill {
 }
 
 /** Naplní novou tabuli kusy v daném pořadí; co se nevejde, zůstane. */
-function fillSheet(ctx: ShapeContext, sheet: Sheet, items: readonly ShapeItem[]): Fill {
+function* fillSheet(
+  ctx: ShapeContext,
+  sheet: Sheet,
+  items: readonly ShapeItem[],
+): Generator<void, Fill, void> {
   const s = new ShapeSheet(ctx, sheet);
   const placements: Placement[] = [];
   const remaining: ShapeItem[] = [];
@@ -234,6 +244,7 @@ function fillSheet(ctx: ShapeContext, sheet: Sheet, items: readonly ShapeItem[])
       rotation: c.rotation,
     });
     placedArea += item.part.width * item.part.height;
+    yield;
   }
   return { sheet: s, placements, placedArea, remaining };
 }
@@ -260,6 +271,21 @@ export function shapeUnplaceableReason(ctx: ShapeContext, part: Part): UnplacedR
  * přednostně, pak největší umístěná plocha, pak menší tabule).
  */
 export function placeShapes(ctx: ShapeContext, items: readonly ShapeItem[]): ShapeResult {
+  const steps = placeShapesSteps(ctx, items);
+  for (;;) {
+    const next = steps.next();
+    if (next.done) return next.value;
+  }
+}
+
+/**
+ * Totéž jako `placeShapes` po krocích: po každém umístěném kusu předá řízení
+ * (`yield`), aby šel výpočet ve workeru přerušit i uprostřed skládání.
+ */
+export function* placeShapesSteps(
+  ctx: ShapeContext,
+  items: readonly ShapeItem[],
+): Generator<void, ShapeResult, void> {
   const { sheets } = ctx.input;
   const unplaced: UnplacedPart[] = [];
   const reasons = new Map<string, UnplacedReason | null>();
@@ -278,13 +304,13 @@ export function placeShapes(ctx: ShapeContext, items: readonly ShapeItem[]): Sha
   const layouts: SheetLayout[] = [];
   while (remaining.length > 0) {
     let best: { index: number; fill: Fill } | null = null;
-    sheets.forEach((sheet, index) => {
-      if (stock[index] === 0) return;
-      const fill = fillSheet(ctx, sheet, remaining);
-      if (fill.placements.length === 0) return;
+    for (const [index, sheet] of sheets.entries()) {
+      if (stock[index] === 0) continue;
+      const fill: Fill = yield* fillSheet(ctx, sheet, remaining);
+      if (fill.placements.length === 0) continue;
       if (!best) {
         best = { index, fill };
-        return;
+        continue;
       }
       const b: { index: number; fill: Fill } = best;
       const bs = sheets[b.index]!;
@@ -296,7 +322,7 @@ export function placeShapes(ctx: ShapeContext, items: readonly ShapeItem[]): Sha
             (Math.abs(fill.placedArea - b.fill.placedArea) <= EPS &&
               sheet.width * sheet.height < bs.width * bs.height - EPS)));
       if (better) best = { index, fill };
-    });
+    }
     if (!best) break;
     const chosen: { index: number; fill: Fill } = best;
     const s = stock[chosen.index];

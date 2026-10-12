@@ -48,7 +48,7 @@ function runAll(inp: NestingInput, opts = { maxGenerations: 3, populationSize: 5
   const steps: GaStep[] = [];
   let next = gen.next();
   while (!next.done) {
-    steps.push(next.value);
+    if (next.value.evaluated) steps.push(next.value);
     next = gen.next();
   }
   return { steps, best: next.value };
@@ -86,7 +86,7 @@ describe('optimizeShapes', () => {
     const plain = placeShapes(new ShapeContext(inp), defaultShapeOrder(inp));
     expect(steps[0]!.best).toEqual(plain);
     for (let i = 1; i < steps.length; i++) {
-      expect(compareRectResults(inp, steps[i]!.best, steps[i - 1]!.best)).toBeLessThanOrEqual(0);
+      expect(compareRectResults(inp, steps[i]!.best!, steps[i - 1]!.best!)).toBeLessThanOrEqual(0);
     }
     expect(compareRectResults(inp, best, plain)).toBeLessThanOrEqual(0);
     expect(shapeInvariantViolations(inp, best)).toEqual([]);
