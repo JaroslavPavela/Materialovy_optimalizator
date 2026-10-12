@@ -1,7 +1,7 @@
 import { AREA_EPS, EPS } from './eps.ts';
 import type { Orientation } from './polygon.ts';
 import { pointsBBox } from './polygon.ts';
-import type { Contour, Point, Rect } from './types.ts';
+import type { Contour, Point, Rect, Ring } from './types.ts';
 
 /**
  * Segment s výškou oblouku nad tětivou (sagitou) do této hodnoty se bere jako
@@ -159,5 +159,18 @@ export function approximateSegment(from: Point, to: Point, bulge: number, tol: n
     out.push({ x: center.x + radius * Math.cos(t), y: center.y + radius * Math.sin(t) });
   }
   out.push(to);
+  return out;
+}
+
+/** Obrys s oblouky jako lomený obrys (oblouky aproximované s tolerancí `tol`). */
+export function contourToRing(contour: Contour, tol: number): Ring {
+  const out: Point[] = [];
+  contour.forEach((v, i) => {
+    const next = contour[(i + 1) % contour.length]!;
+    out.push({ x: v.x, y: v.y });
+    const pts = approximateSegment(v, next, v.bulge, tol);
+    pts.pop();
+    out.push(...pts);
+  });
   return out;
 }

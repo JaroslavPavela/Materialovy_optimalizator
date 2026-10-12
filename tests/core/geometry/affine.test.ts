@@ -11,7 +11,18 @@ import {
   scaling,
   translation,
 } from '../../../src/core/geometry/affine.ts';
-import { approximateSegment, bulgeToArc } from '../../../src/core/geometry/contour.ts';
+import {
+  approximateSegment,
+  bulgeToArc,
+  contourArea,
+  contourToRing,
+} from '../../../src/core/geometry/contour.ts';
+import {
+  pointInRing,
+  pointRingDistance,
+  pointSegmentDistance,
+  ringArea,
+} from '../../../src/core/geometry/polygon.ts';
 import { EPS } from '../../../src/core/geometry/eps.ts';
 import { arbPoint } from '../arbitraries.ts';
 
@@ -83,5 +94,59 @@ describe('approximateSegment', () => {
         },
       ),
     );
+  });
+});
+
+describe('bod a obrys', () => {
+  const sq = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+  ];
+
+  it('pointSegmentDistance a pointRingDistance', () => {
+    expect(pointSegmentDistance({ x: 5, y: 3 }, { x: 0, y: 0 }, { x: 10, y: 0 })).toBe(3);
+    expect(pointSegmentDistance({ x: -3, y: 4 }, { x: 0, y: 0 }, { x: 10, y: 0 })).toBe(5);
+    expect(pointSegmentDistance({ x: 1, y: 1 }, { x: 0, y: 0 }, { x: 0, y: 0 })).toBeCloseTo(
+      Math.SQRT2,
+      12,
+    );
+    expect(pointRingDistance({ x: 5, y: 9 }, sq)).toBe(1);
+  });
+
+  it('pointInRing: uvnitř, venku, nekonvexní obrys a obě orientace', () => {
+    expect(pointInRing({ x: 5, y: 5 }, sq)).toBe(true);
+    expect(pointInRing({ x: 15, y: 5 }, sq)).toBe(false);
+    expect(pointInRing({ x: 5, y: 5 }, sq.toReversed())).toBe(true);
+    const u = [
+      { x: 0, y: 0 },
+      { x: 30, y: 0 },
+      { x: 30, y: 30 },
+      { x: 20, y: 30 },
+      { x: 20, y: 10 },
+      { x: 10, y: 10 },
+      { x: 10, y: 30 },
+      { x: 0, y: 30 },
+    ];
+    expect(pointInRing({ x: 15, y: 20 }, u)).toBe(false);
+    expect(pointInRing({ x: 5, y: 20 }, u)).toBe(true);
+  });
+
+  it('contourToRing: kruh se blíží ploše πr² v toleranci, úsečky beze změny', () => {
+    const circle = [
+      { x: 0, y: 0, bulge: 1 },
+      { x: 20, y: 0, bulge: 1 },
+    ];
+    const ring = contourToRing(circle, 0.01);
+    expect(ring[0]).toEqual({ x: 0, y: 0 });
+    expect(ring).toContainEqual({ x: 20, y: 0 });
+    expect(Math.abs(ringArea(ring) - contourArea(circle))).toBeLessThan(2 * Math.PI * 10 * 0.01);
+    expect(
+      contourToRing(
+        sq.map((p) => ({ ...p, bulge: 0 })),
+        0.01,
+      ),
+    ).toEqual(sq);
   });
 });

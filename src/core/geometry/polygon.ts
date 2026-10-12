@@ -97,3 +97,37 @@ export function rectToPolygon(r: Rect): Polygon {
     holes: [],
   };
 }
+
+/** Vzdálenost bodu od úsečky a–b. */
+export function pointSegmentDistance(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/** Vzdálenost bodu od obrysu (hranice) uzavřeného lomeného obrysu. */
+export function pointRingDistance(p: Point, ring: Ring): number {
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    best = Math.min(best, pointSegmentDistance(p, ring[i]!, ring[(i + 1) % ring.length]!));
+  }
+  return best;
+}
+
+/**
+ * Leží bod uvnitř obrysu? Paprsková metoda (sudý–lichý); pro bod na hranici
+ * je výsledek nedefinovaný – volající ho vyloučí přes `pointRingDistance`.
+ */
+export function pointInRing(p: Point, ring: Ring): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i]!;
+    const b = ring[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}

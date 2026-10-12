@@ -92,7 +92,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       POLYLINE, ELLIPSE, SPLINE (aproximace s tolerancí), INSERT (bloky
       s transformací); $INSUNITS → mm (chybí-li, předpoklad mm + varování);
       TEXT, DIMENSION, HATCH ignorovat.
-- [ ] 4.2 Sestavení kontur: spojení koncových bodů s tolerancí, odstranění
+- [x] 4.2 Sestavení kontur: spojení koncových bodů s tolerancí, odstranění
       duplicit, uzavření, rozpoznání vnější kontury a otvorů, sjednocení
       orientace. Neuzavřené kontury nahlásit srozumitelnou chybou.
 - [ ] 4.3 Díly z DXF: režim „1 soubor = 1 díl" i „více dílů v souboru"
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 4.2
-Poslední commit: feat: čtení DXF na segmenty v mm (krok 4.1)
+Aktuální krok: 4.3
+Poslední commit: feat: sestavení kontur z DXF (krok 4.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -268,3 +268,15 @@ BLOKOVÁNO: ne
   aproximace s tolerancí 0,01 mm. Text souboru: UTF-8, jinak Windows-1250.
   Nad rámec kroku: `core/geometry/affine.ts` a `approximateSegment`
   v contour.ts (použije i krok 5.1).
+- 4.2: `core/import/contours.ts`. Koncové body se shlukují mřížkou
+  (JOIN_TOL 0,01 mm), duplicitní segmenty (i obrácené) se odstraní. Hrany mimo
+  cykly (visící čáry) se před trasováním oříznou, aby nerozbily obrys; smyčka
+  procházející uzlem dvakrát (dotyk rohem) se rozdělí. Mezery do 0,1 mm se
+  uzavřou přichycením vrcholu (nejbližší konce první), větší jsou chyba
+  s pozicí konců. Hlášení jsou zkrácená na 5 + souhrn. Vnoření podle
+  bodu vnitřní kontury mimo hranici (aproximace oblouků 0,01 mm); sudá
+  hloubka = vnější obrys (CCW), lichá = otvor (CW). Čára napříč obrysem
+  mezi dvěma vrcholy (např. ohyb na stejné vrstvě) se nahlásí jako
+  neuzavřená kontura – oddělení podle vrstev řeší až UI. Nad rámec:
+  `pointInRing`, `pointRingDistance`, `pointSegmentDistance` (polygon.ts)
+  a `contourToRing` (contour.ts).
