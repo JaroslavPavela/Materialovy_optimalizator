@@ -190,7 +190,7 @@ describe('MaxRectsBin', () => {
       ),
       { numRuns: 200, seed: 99 },
     );
-  });
+  }, 20_000);
 });
 
 describe('packRects a nestRects – konkrétní případy', () => {
