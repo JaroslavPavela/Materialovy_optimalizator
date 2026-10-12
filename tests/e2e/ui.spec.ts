@@ -93,7 +93,7 @@ test('velký soubor: průběh, zastavení a přepínání výběrem', async ({ p
   // 10 389 kusů: jeden krok MaxRects trvá několik sekund (výkon řeší krok 5.7).
   // Lokátory jsou CSS – getByRole s názvem počítá přístupná jména všech
   // 8000 polí tabulky dílů při každém pokusu a test by zbytečně zdržoval.
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   const errors = collectErrors(page);
   await page.goto('/');
   const button = (text: string) => page.locator('button', { hasText: text });
@@ -104,10 +104,11 @@ test('velký soubor: průběh, zastavení a přepínání výběrem', async ({ p
   await expect(byLabel('Průběh výpočtu')).toBeVisible();
   // Po prvním kroku je k dispozici nejlepší dosavadní výsledek.
   const select = page.locator('select[aria-label="Tabule"]');
-  await expect(select).toBeVisible({ timeout: 30_000 });
+  // Při zátěži stroje (souběžné testy) trvá první krok i desítky sekund.
+  await expect(select).toBeVisible({ timeout: 60_000 });
   await button('Zastavit a použít nejlepší').click();
   await expect(page.locator('.calculate [role="status"]')).toContainText('Výpočet zastaven', {
-    timeout: 30_000,
+    timeout: 60_000,
   });
   await expect(button('Vypočítat')).toBeEnabled();
 

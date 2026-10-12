@@ -91,7 +91,7 @@ describe('tvarový režim', () => {
   };
 
   it('zaklesnuté tvary L: tvarově 1 tabule, přes obalové obdélníky 2', () => {
-    const shape = nest(shapeInput);
+    const shape = nest(shapeInput, { ga: { maxGenerations: 3, populationSize: 4 } });
     const rect = nest({ ...shapeInput, params: { ...shapeInput.params, mode: 'rect' } });
     if (!shape.ok || !rect.ok) throw new Error('výpočet selhal');
     expect(rect.result.layouts).toHaveLength(2);
@@ -99,22 +99,40 @@ describe('tvarový režim', () => {
     expect(shapeInvariantViolations(shapeInput, shape.result)).toEqual([]);
   });
 
-  it('o krok víc než obdélníkový režim a nikdy horší výsledek', () => {
+  it('obdélníky, pak optimalizátor; průběh roste do 1; nikdy horší než obdélníkový režim', () => {
     const shapeMode = { ...input, params: { ...input.params, mode: 'shape' as const } };
-    const steps = nestSteps(shapeMode);
-    let n = 0;
+    const steps = nestSteps(shapeMode, { ga: { maxGenerations: 2, populationSize: 4 } });
+    const fractions: number[] = [];
     let next = steps.next();
     while (!next.done) {
-      n++;
-      expect(next.value.totalSteps).toBe(17);
+      fractions.push(next.value.fraction);
       next = steps.next();
     }
-    expect(n).toBe(17);
+    // 16 kombinací MaxRects + 4 jedinci počáteční populace + 2 generace po 3 potomcích.
+    expect(fractions).toHaveLength(16 + 4 + 2 * 3);
+    expect(fractions.every((f, i) => f >= (fractions[i - 1] ?? 0) && f <= 1)).toBe(true);
     const rect = nest(input);
     if (!next.value.ok || !rect.ok) throw new Error('výpočet selhal');
     expect(next.value.result.metrics.utilization).toBeGreaterThanOrEqual(
       rect.result.metrics.utilization - 1e-12,
     );
     expect(shapeInvariantViolations(shapeMode, next.value.result)).toEqual([]);
+  });
+
+  it('časový limit ukončí optimalizátor', () => {
+    let t = 0;
+    const shapeMode = {
+      ...input,
+      params: { ...input.params, mode: 'shape' as const, timeLimitMs: 5 },
+    };
+    const steps = nestSteps(shapeMode, { now: () => (t += 1) });
+    let n = 0;
+    let next = steps.next();
+    while (!next.done) {
+      n++;
+      next = steps.next();
+    }
+    expect(next.value.ok).toBe(true);
+    expect(n).toBeLessThan(16 + 10);
   });
 });

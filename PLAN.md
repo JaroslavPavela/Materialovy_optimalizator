@@ -113,7 +113,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       (díl A, rotace A, díl B, rotace B).
 - [x] 5.3 Placer: pro každý díl a povolené natočení nejnižší a nejlevější
       přípustná pozice; neumístitelné díly → další tabule.
-- [ ] 5.4 Optimalizátor: genetický algoritmus nad pořadím a natočením,
+- [x] 5.4 Optimalizátor: genetický algoritmus nad pořadím a natočením,
       časový limit, průběžné posílání nejlepšího výsledku do UI.
 - [ ] 5.5 Property testy: plocha průniku dvou dílů < EPS, vše uvnitř užitné
       plochy, vzdálenost dílů ≥ rozestup − EPS.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 5.4
-Poslední commit: fix: opravy z revize NFP – výkon, cache, natočení (krok 5.2)
+Aktuální krok: 5.5
+Poslední commit: feat: genetický optimalizátor tvarového nestingu (krok 5.4)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -368,3 +368,13 @@ BLOKOVÁNO: ne
   rezerva na tětivy), ostatní s ostrými. SLACK = EPS/4 a zmenšení NFP se
   zaoblenými rohy (součet odchylek zůstane pod EPS); IFP dílu širšího než
   plocha o ≤ EPS souměrně.
+- 5.4: `core/nesting/optimizer.ts` – jedinec = pořadí kusů + gen natočení
+  (konkrétní, nebo „placer vybere nejlepší"); výchozí jedinec = placer podle
+  plochy, OX křížení (natočení putuje s kusem), mutace prohozením sousedů
+  a změnou natočení, turnaj, elitismus, mulberry32 se semínkem z parametrů.
+  Výsledky se porovnávají stejně jako v MaxRects (lexikograficky, ne skalární
+  fitness). Tvarový režim v `nestSteps`: nejdřív 16 kombinací MaxRects
+  (rychlý první výsledek), pak GA do časového limitu / 30 generací bez
+  zlepšení; průběh `fraction` (0–1) podle času. Determinismus platí pro
+  stejné semínko a stejný počet kroků – s časovým limitem závisí počet
+  generací na rychlosti stroje (testy používají `maxGenerations`).

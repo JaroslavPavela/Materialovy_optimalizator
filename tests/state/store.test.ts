@@ -11,7 +11,8 @@ import type { NestingClient } from '../../src/worker/client.ts';
 const syncClient: NestingClient = {
   nest: (input, onProgress) => {
     const outcome = nest(input);
-    if (outcome.ok && onProgress) onProgress({ step: 1, totalSteps: 1, best: outcome.result });
+    if (outcome.ok && onProgress)
+      onProgress({ step: 1, totalSteps: 1, fraction: 1, best: outcome.result });
     return Promise.resolve(outcome);
   },
   stop: () => Promise.resolve(),

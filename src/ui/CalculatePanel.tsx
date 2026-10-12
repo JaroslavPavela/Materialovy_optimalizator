@@ -29,11 +29,7 @@ export function CalculatePanel() {
           </button>
         )}
         {running && (
-          <progress
-            aria-label="Průběh výpočtu"
-            max={progress?.total ?? 1}
-            value={progress?.step ?? 0}
-          />
+          <progress aria-label="Průběh výpočtu" max={1} value={progress?.fraction ?? 0} />
         )}
         {!hasParts && <span className="muted">Nejdřív přidejte díly.</span>}
         {status === 'done' && stopped && (

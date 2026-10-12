@@ -51,7 +51,12 @@ export interface AppState {
   /** Uložené formáty tabulí – sdílené mezi projekty. */
   readonly sheetLibrary: readonly Sheet[];
   readonly status: Status;
-  readonly progress: { readonly step: number; readonly total: number } | null;
+  readonly progress: {
+    readonly step: number;
+    readonly total: number;
+    /** Hotová část 0–1. */
+    readonly fraction: number;
+  } | null;
   /** Výsledek a vstup, ze kterého vznikl (díly se mezitím mohou měnit). */
   readonly result: NestingResult | null;
   readonly resultInput: NestingInput | null;
@@ -358,7 +363,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     set({ status: 'running', progress: null, issues: [], error: null, stopped: false });
     const onProgress = (p: NestProgress) =>
       set({
-        progress: { step: p.step, total: p.totalSteps },
+        progress: { step: p.step, total: p.totalSteps, fraction: p.fraction },
         result: p.best,
         resultInput: input,
       });
