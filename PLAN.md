@@ -43,7 +43,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 1.3 Datový model `core/model.ts`: Part, Sheet, NestingParams,
       Placement, NestingResult, ForbiddenZone; rotace jako
       'free' | 'ortho' | 'flip' | 'locked'.
-- [ ] 1.4 Geometrie `core/geometry/`: Point, Polygon (vnější + otvory),
+- [x] 1.4 Geometrie `core/geometry/`: Point, Polygon (vnější + otvory),
       plocha, orientace, bbox, rotace/posun, EPS, porovnání s tolerancí.
       Hotovo: jednotkové testy + property testy (rotace o 360° = identita,
       plocha nezávislá na posunu).
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 1.4
-Poslední commit: feat: datový model jádra (krok 1.3)
+Aktuální krok: 2.1
+Poslední commit: feat: geometrie jádra a opravy z revize modelu (krok 1.4)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -170,3 +170,13 @@ BLOKOVÁNO: ne
   už v kroku 1.3, protože je model potřebuje; funkce nad nimi doplní krok 1.4.
 - 1.3: Subagent `revize-geometrie` se načte až po restartu relace – revize
   proběhla obecným subagentem s jeho instrukcemi.
+- 1.4: Podle revize kroku 1.3: `EPS` zvětšen z 1e-6 na 1e-3 mm, přidány
+  `AREA_EPS` a `CLIPPER_SCALE` = 1e4; `Placement` definován jako transformace
+  `p' = R·p + (x, y)` místo „levý dolní roh bbox po natočení" (upraven i skill
+  nesting-cnc); krok volné rotace ≥ 1°. Zdůvodnění v
+  docs/rozhodnuti/001-tolerance-a-umisteni.md.
+- 1.4: Nad rámec kroku přidán `core/geometry/contour.ts` (střed a poloměr
+  oblouku z bulge, plocha, orientace, obrácení a přesný bbox obrysu s oblouky) –
+  potřebuje ho validace tvaru dílu v modelu.
+- 1.4: `UnplacedReason` rozšířen o `no-matching-sheet` a `blocked`, přidáno
+  pravidlo párování materiálu a tloušťky `sheetMatchesPart` (chybějící = libovolný).

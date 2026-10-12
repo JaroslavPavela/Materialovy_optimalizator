@@ -22,9 +22,10 @@ Pro obdélníkový režim (MaxRects) se z rotací uplatní jen 0° a 90°;
 
 ## Výsledek
 `NestingResult` = seznam tabulí, každá s `Placement { partId, instance, x, y, rotation }`,
-seznam neumístěných dílů s důvodem (`'větší než tabule'`, `'došly tabule'`)
-a metriky. Souřadnice umístění = posun referenčního bodu dílu (levý dolní roh
-bbox po rotaci) v mm, Y nahoru.
+seznam neumístěných dílů s důvodem (`UnplacedReason` v `core/model.ts`)
+a metriky. Umístění je transformace `p' = R(rotation)·p + (x, y)` – otočení
+kolem lokálního počátku dílu, pak posun (mm, Y nahoru). Roh obalového
+obdélníku → posun: `translationForCorner` (viz docs/rozhodnuti/001).
 
 ## Metriky
 - využití tabule = Σ plocha dílů (skutečná, s otvory odečtenými) / plocha tabule

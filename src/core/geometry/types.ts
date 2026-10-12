@@ -36,6 +36,13 @@ export interface ContourVertex {
 
 /**
  * Uzavřený obrys z úseček a oblouků – původní geometrie pro náhled a export.
- * Poslední vrchol navazuje na první (uzavření je implicitní).
+ * Poslední vrchol navazuje na první (uzavření je implicitní); bulge vrcholu `i`
+ * platí pro segment `i → i+1`.
+ *
+ * - Oblouk přes 180° má |bulge| > 1. Plný kruh = 2 vrcholy na průměru,
+ *   oba s bulge 1 (CCW, vnější obrys) nebo −1 (CW, otvor).
+ * - Plocha a orientace se počítají včetně kruhových úsečí (`contourSignedArea`).
+ * - Obrácení orientace (`reverseContour`) neguje bulge a přesouvá ho
+ *   na protější vrchol segmentu.
  */
 export type Contour = readonly ContourVertex[];

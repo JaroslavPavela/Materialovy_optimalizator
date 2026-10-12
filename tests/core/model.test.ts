@@ -2,10 +2,12 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_NESTING_PARAMS,
+  MIN_ROTATION_STEP,
   allowedRotations,
   isRotationAllowed,
   normalizeRotation,
   rectRotations,
+  sheetMatchesPart,
   totalInstances,
   validateNestingInput,
   type NestingInput,
@@ -53,8 +55,13 @@ describe('normalizeRotation', () => {
     [-90, 270],
     [-360, 0],
     [720.5, 0.5],
-  ])('%d° → %d°', (deg, expected) => {
+  ])('%s° → %s°', (deg, expected) => {
     expect(normalizeRotation(deg)).toBeCloseTo(expected, 9);
+  });
+
+  it('NaN a nekonečno vyhodí chybu', () => {
+    expect(() => normalizeRotation(Number.NaN)).toThrow(RangeError);
+    expect(() => normalizeRotation(Number.POSITIVE_INFINITY)).toThrow(RangeError);
   });
 
   it('vrací hodnotu v [0, 360) a zachovává úhel modulo 360', () => {
@@ -89,11 +96,19 @@ describe('allowedRotations', () => {
     expect(() => allowedRotations('free', -90)).toThrow(RangeError);
     expect(() => allowedRotations('free', 361)).toThrow(RangeError);
     expect(() => allowedRotations('free', Number.NaN)).toThrow(RangeError);
+    expect(() => allowedRotations('free', MIN_ROTATION_STEP - 0.001)).toThrow(RangeError);
+    expect(() => allowedRotations('free', 1e-8)).toThrow(RangeError);
+  });
+
+  it('nejmenší krok dá právě 360 natočení', () => {
+    const rots = allowedRotations('free', MIN_ROTATION_STEP);
+    expect(rots).toHaveLength(360);
+    expect(rots[359]).toBe(359);
   });
 
   it('free: vzestupně, začíná nulou, vše v [0, 360), krok dodržen', () => {
     fc.assert(
-      fc.property(fc.double({ min: 0.5, max: 360, noNaN: true }), (step) => {
+      fc.property(fc.double({ min: MIN_ROTATION_STEP, max: 360, noNaN: true }), (step) => {
         const rots = allowedRotations('free', step);
         expect(rots[0]).toBe(0);
         rots.forEach((r, i) => {
@@ -101,7 +116,9 @@ describe('allowedRotations', () => {
           expect(r).toBeLessThan(360);
           if (i > 0) expect(r - rots[i - 1]!).toBeCloseTo(step, 9);
         });
-        expect(rots.length).toBe(Math.ceil(360 / step - 1e-9));
+        // úplnost: další násobek kroku už je (téměř) 360° nebo víc
+        expect(rots[rots.length - 1]! + step).toBeGreaterThanOrEqual(360 - 1e-9);
+        expect(rots.length).toBeLessThanOrEqual(360);
       }),
     );
   });
@@ -158,6 +175,21 @@ describe('isRotationAllowed', () => {
   });
 });
 
+describe('sheetMatchesPart', () => {
+  it('chybějící materiál nebo tloušťka = libovolné', () => {
+    expect(sheetMatchesPart(part(), sheet())).toBe(true);
+    expect(sheetMatchesPart(part({ material: 'DTD' }), sheet())).toBe(true);
+    expect(sheetMatchesPart(part(), sheet({ material: 'DTD', thickness: 18 }))).toBe(true);
+  });
+
+  it('materiál bez ohledu na velikost písmen a mezery, tloušťka s tolerancí', () => {
+    expect(sheetMatchesPart(part({ material: ' dtd ' }), sheet({ material: 'DTD' }))).toBe(true);
+    expect(sheetMatchesPart(part({ material: 'MDF' }), sheet({ material: 'DTD' }))).toBe(false);
+    expect(sheetMatchesPart(part({ thickness: 18 }), sheet({ thickness: 18 + 1e-6 }))).toBe(true);
+    expect(sheetMatchesPart(part({ thickness: 18 }), sheet({ thickness: 19 }))).toBe(false);
+  });
+});
+
 describe('totalInstances', () => {
   it('sečte počty kusů', () => {
     expect(totalInstances([])).toBe(0);
@@ -182,10 +214,75 @@ describe('validateNestingInput', () => {
     expect(fields(input({ parts: [part({ thickness: 0 })] }))).toEqual(['parts[0].thickness']);
   });
 
-  it('hlásí tvar bez vnějšího obrysu', () => {
-    expect(fields(input({ parts: [part({ shape: { outer: [], holes: [] } })] }))).toEqual([
-      'parts[0].shape',
-    ]);
+  describe('tvar dílu', () => {
+    // Obdélník 600 × 400 s půlkruhem nahoře by měl výšku 700 – proto
+    // tvar „deska se zaobleným horním okrajem": obdélník 600 × 100 + půlkruh r = 300.
+    const outer = [
+      { x: 0, y: 0, bulge: 0 },
+      { x: 600, y: 0, bulge: 0 },
+      { x: 600, y: 100, bulge: 1 },
+      { x: 0, y: 100, bulge: 0 },
+    ];
+    const hole = [
+      { x: 250, y: 50, bulge: -1 },
+      { x: 350, y: 50, bulge: -1 },
+    ];
+    const shaped = (over: Partial<Part> = {}) =>
+      part({ width: 600, height: 400, shape: { outer, holes: [hole] }, ...over });
+    const shapeMessages = (p: Part) =>
+      validateNestingInput(input({ parts: [p] })).map((x) => x.message);
+
+    it('platný tvar s obloukem a kruhovým otvorem projde', () => {
+      expect(shapeMessages(shaped())).toEqual([]);
+    });
+
+    it('bez vnějšího obrysu', () => {
+      expect(shapeMessages(shaped({ shape: { outer: [], holes: [] } }))).toEqual([
+        'Díl „Bok": tvar nemá vnější obrys.',
+      ]);
+    });
+
+    it('degenerovaný obrys (úsečka) a neplatná čísla', () => {
+      const line = [
+        { x: 0, y: 0, bulge: 0 },
+        { x: 600, y: 0, bulge: 0 },
+      ];
+      expect(shapeMessages(shaped({ shape: { outer: line, holes: [] } }))).toEqual([
+        'Díl „Bok": vnější obrys má nulovou plochu.',
+      ]);
+      const nan = [...outer.slice(0, 3), { x: 0, y: 100, bulge: Number.NaN }];
+      expect(shapeMessages(shaped({ shape: { outer: nan, holes: [] } }))).toEqual([
+        'Díl „Bok": tvar má neplatné souřadnice.',
+      ]);
+    });
+
+    it('špatná orientace obrysu a otvoru', () => {
+      const cwOuter = [
+        { x: 0, y: 0, bulge: 0 },
+        { x: 0, y: 400, bulge: 0 },
+        { x: 600, y: 400, bulge: 0 },
+        { x: 600, y: 0, bulge: 0 },
+      ];
+      const ccwHole = hole.map((v) => ({ ...v, bulge: 1 }));
+      expect(shapeMessages(shaped({ shape: { outer: cwOuter, holes: [ccwHole] } }))).toEqual([
+        'Díl „Bok": vnější obrys musí být orientován proti směru hodinových ručiček.',
+        'Díl „Bok": otvor 1 musí být orientován po směru hodinových ručiček.',
+      ]);
+    });
+
+    it('obalový obdélník tvaru musí odpovídat šířce a výšce dílu', () => {
+      expect(shapeMessages(shaped({ height: 100 }))).toEqual([
+        'Díl „Bok": obalový obdélník tvaru neodpovídá rozměrům dílu.',
+      ]);
+      const moved = outer.map((v) => ({ ...v, x: v.x + 5 }));
+      expect(shapeMessages(shaped({ shape: { outer: moved, holes: [] } }))).toEqual([
+        'Díl „Bok": obalový obdélník tvaru neodpovídá rozměrům dílu.',
+      ]);
+    });
+  });
+
+  it('hlásí prázdný seznam dílů', () => {
+    expect(fields(input({ parts: [] }))).toEqual(['parts']);
   });
 
   it('hlásí duplicitní ID dílů a tabulí', () => {
@@ -200,6 +297,21 @@ describe('validateNestingInput', () => {
     expect(fields(input({ sheets: [sheet({ stock: 0.5 })] }))).toEqual(['sheets[0].stock']);
     expect(fields(input({ sheets: [sheet({ margin: -1 })] }))).toEqual(['sheets[0].margin']);
     expect(fields(input({ sheets: [sheet({ margin: 625 })] }))).toEqual(['sheets[0].margin']);
+  });
+
+  it('okraj na hranici poloviny kratší strany', () => {
+    expect(fields(input({ sheets: [sheet({ margin: 624.9 })] }))).toEqual([]);
+    // užitná šířka by byla menší než EPS
+    expect(fields(input({ sheets: [sheet({ margin: 624.9999995 })] }))).toEqual([
+      'sheets[0].margin',
+    ]);
+  });
+
+  it('hlásí, když žádná tabule není skladem', () => {
+    expect(fields(input({ sheets: [sheet({ stock: 0 })] }))).toEqual(['sheets']);
+    expect(
+      fields(input({ sheets: [sheet({ stock: 0 }), sheet({ id: 's2', stock: null })] })),
+    ).toEqual([]);
   });
 
   it('hlásí neplatné zakázané zóny', () => {
@@ -230,13 +342,43 @@ describe('validateNestingInput', () => {
         }),
       ),
     ).toEqual(['sheets[0].forbiddenZones[0]']);
+    expect(
+      fields(
+        input({
+          sheets: [
+            zone([
+              { x: 0, y: 0 },
+              { x: 10, y: 10 },
+              { x: 20, y: 20 },
+            ]),
+          ],
+        }),
+      ),
+    ).toEqual(['sheets[0].forbiddenZones[0]']);
+  });
+
+  it('zakázaná zóna v libovolné orientaci je platná', () => {
+    const cw = [
+      { x: 0, y: 0 },
+      { x: 0, y: 100 },
+      { x: 50, y: 100 },
+      { x: 50, y: 0 },
+    ];
+    expect(
+      fields(input({ sheets: [sheet({ forbiddenZones: [{ id: 'z', polygon: cw }] })] })),
+    ).toEqual([]);
   });
 
   it('hlásí neplatné parametry', () => {
     const p = DEFAULT_NESTING_PARAMS;
     expect(fields(input({ params: { ...p, spacing: -1 } }))).toEqual(['params.spacing']);
-    expect(fields(input({ params: { ...p, freeRotationStep: 0 } }))).toEqual([
-      'params.freeRotationStep',
+    for (const step of [0, 0.5, 361, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(fields(input({ params: { ...p, freeRotationStep: step } }))).toEqual([
+        'params.freeRotationStep',
+      ]);
+    }
+    expect(fields(input({ params: { ...p, spacing: Number.POSITIVE_INFINITY } }))).toEqual([
+      'params.spacing',
     ]);
     expect(fields(input({ params: { ...p, timeLimitMs: 0 } }))).toEqual(['params.timeLimitMs']);
     expect(fields(input({ params: { ...p, seed: 0.5 } }))).toEqual(['params.seed']);
