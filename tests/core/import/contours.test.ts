@@ -53,7 +53,7 @@ describe('buildContours', () => {
     small[1] = L({ x: 10.05, y: 0 }, small[1]!.b);
     const r = buildContours(small);
     expect(r.regions).toHaveLength(1);
-    expect(r.warnings).toEqual(['Mezera 0,050 mm u bodu (10,0; 0,0) byla automaticky uzavřena.']);
+    expect(r.warnings).toEqual(['Mezera 0,050 mm u bodu (10,1; 0,0) byla automaticky uzavřena.']);
 
     const big = rect(0, 0, 120, 50);
     big[1] = L({ x: 120.8, y: 0 }, big[1]!.b);
@@ -137,6 +137,7 @@ describe('buildContours', () => {
   it('čára napříč obrysem mezi vrcholy se nahlásí jako chyba (ne tiše)', () => {
     const r = buildContours([...rect(0, 0, 10, 10), L({ x: 0, y: 0 }, { x: 10, y: 10 })]);
     expect(r.errors.length).toBeGreaterThan(0);
+    expect(r.regions).toEqual([]);
   });
 
   it('osamocená čára a čára nakreslená dvakrát jsou neuzavřené kontury', () => {
@@ -202,7 +203,7 @@ describe('buildContours', () => {
     const r = buildContours([...lines, ...rect(0, 0, 2000, 1300), ...holes]);
     expect(performance.now() - t).toBeLessThan(5000);
     expect(r.errors).toHaveLength(6);
-    expect(r.errors[5]).toBe('Neuzavřených kontur je ještě 2995.');
+    expect(r.errors[5]).toBe('Dalších chyb kontur: 2995.');
     expect(r.regions).toHaveLength(1);
     expect(r.regions[0]!.holes).toHaveLength(1000);
   });
@@ -260,6 +261,147 @@ describe('buildContours', () => {
         expect(x.holes).toHaveLength(1);
         expect(contourArea(x.outer)).toBeCloseTo(80 * 60 + (Math.PI * 900) / 2, 3);
       }
+    }
+  });
+});
+
+describe('revize 4.2: okrajové případy', () => {
+  const sq = (x: number, y: number, w: number, h: number) => rect(x, y, w, h);
+  const areas = (r: ReturnType<typeof buildContours>) => r.regions.map((x) => contourArea(x.outer));
+
+  it('hustá lomená čára (kroky pod tolerancí spojení) tvar zachová', () => {
+    const bottom = Array.from({ length: 2000 }, (_, i) =>
+      L({ x: i * 0.005, y: 0 }, { x: (i + 1) * 0.005, y: 0 }),
+    );
+    const r = buildContours([...bottom, ...sq(0, 0, 10, 10).slice(1)]);
+    expect(r.errors).toEqual([]);
+    // Roh se smí přichytit k sousednímu uzlu nejvýš o toleranci spojení.
+    expect(Math.abs(areas(r)[0]! - 100)).toBeLessThan(10 * 0.01);
+    const n = 400;
+    const half = Array.from({ length: n }, (_, i) => {
+      const a0 = (Math.PI * i) / n;
+      const a1 = (Math.PI * (i + 1)) / n;
+      return L({ x: Math.cos(a0), y: Math.sin(a0) }, { x: Math.cos(a1), y: Math.sin(a1) });
+    });
+    const h = buildContours([...half, L({ x: -1, y: 0 }, { x: 1, y: 0 })]);
+    expect(h.regions).toHaveLength(1);
+    expect(Math.abs(areas(h)[0]! - Math.PI / 2)).toBeLessThan(0.01);
+  });
+
+  it('oblouk téměř přes celý kruh (359,99° i 359,9°) nezmizí', () => {
+    for (const deg of [359.99, 359.9]) {
+      const sweep = (deg * Math.PI) / 180;
+      const a = { x: 50, y: 0 };
+      const b = { x: 50 * Math.cos(sweep), y: 50 * Math.sin(sweep) };
+      const r = buildContours([L(a, b, Math.tan(sweep / 4))]);
+      expect(r.regions).toHaveLength(1);
+      // Chybí jen úseč nad uzavřenou mezerou.
+      expect(Math.abs(areas(r)[0]! - Math.PI * 2500)).toBeLessThan(0.002 * Math.PI * 2500);
+    }
+  });
+
+  it('úhlopříčka přes obrys a dva díly se sdílenou hranou: chyba větvení, žádný chybný díl', () => {
+    const diag = L({ x: 0, y: 0 }, { x: 10, y: 10 });
+    for (const segs of [
+      [...sq(0, 0, 10, 10), diag],
+      [diag, ...sq(0, 0, 10, 10)],
+    ]) {
+      const r = buildContours(segs);
+      expect(r.regions).toEqual([]);
+      expect(r.errors[0]).toMatch(/Kontura se větví v bodě/);
+    }
+    const shared = buildContours([...sq(0, 0, 10, 10), ...sq(10, 0, 10, 10)]);
+    expect(shared.regions).toEqual([]);
+    expect(shared.errors[0]).toMatch(/větví/);
+  });
+
+  it('spojka mezi obrysem a otvorem: otvor zůstane, spojka je chyba', () => {
+    const r = buildContours([
+      ...sq(0, 0, 100, 100),
+      ...sq(20, 20, 10, 10),
+      L({ x: 0, y: 0 }, { x: 20, y: 20 }),
+    ]);
+    expect(r.regions).toHaveLength(1);
+    expect(r.regions[0]!.holes).toHaveLength(1);
+    expect(r.errors).toHaveLength(1);
+  });
+
+  it('mezera v rohu s visící čárou se uzavře; přesah v rohu nedá falešná hlášení', () => {
+    const gap = sq(0, 0, 10, 10);
+    gap[1] = L({ x: 10.05, y: 0 }, gap[1]!.b);
+    const r = buildContours([...gap, L({ x: 10, y: 0 }, { x: 20, y: -5 })]);
+    expect(r.regions).toHaveLength(1);
+    expect(areas(r)[0]).toBeCloseTo(100, 1);
+    expect(r.warnings[0]).toMatch(/Mezera 0,050 mm/);
+
+    const over = sq(0, 0, 10, 10);
+    over[0] = L({ x: 0, y: 0 }, { x: 10.05, y: 0 });
+    const o = buildContours([...over, L({ x: 10.05, y: 0 }, { x: 10, y: 0 })]);
+    expect(o.regions).toHaveLength(1);
+    expect(o.warnings).toEqual([]);
+  });
+
+  it('samoprůnik (motýlek) a křížení kontur jsou chyba bez dílu', () => {
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 20, y: 10 },
+      { x: 20, y: 0 },
+      { x: 0, y: 4 },
+    ];
+    const bow = buildContours(pts.map((p, i) => L(p, pts[(i + 1) % 4]!)));
+    expect(bow.regions).toEqual([]);
+    expect(bow.errors[0]).toMatch(/protíná sama sebe u bodu/);
+    const cross = buildContours([...sq(0, 0, 10, 10), ...sq(5, 5, 10, 10)]);
+    expect(cross.regions).toEqual([]);
+    expect(cross.errors.join()).toMatch(/Kontury se protínají/);
+  });
+
+  it('překrývající se kolineární čára (známé omezení) se nahlásí, ne tiše', () => {
+    const r = buildContours([
+      ...sq(0, 0, 10, 10),
+      L({ x: 0, y: 0 }, { x: 5, y: 0 }),
+      L({ x: 5, y: 0 }, { x: 10, y: 0 }),
+    ]);
+    expect(r.errors.length).toBeGreaterThan(0);
+  });
+
+  it('duplicita oblouku na hranici zaokrouhlení bulge se pozná', () => {
+    const c = circle(0, 0, 10);
+    const r = buildContours([
+      ...c,
+      L(c[0]!.a, c[0]!.b, 1.0000004999),
+      L(c[0]!.a, c[0]!.b, 1.0000005001),
+    ]);
+    expect(r.errors).toEqual([]);
+    expect(r.regions).toHaveLength(1);
+  });
+
+  it('kosočtverec vepsaný do čtverce (vrcholy na hranici) je otvor', () => {
+    const d = [
+      { x: 5, y: 0 },
+      { x: 10, y: 5 },
+      { x: 5, y: 10 },
+      { x: 0, y: 5 },
+    ];
+    const r = buildContours([...sq(0, 0, 10, 10), ...d.map((p, i) => L(p, d[(i + 1) % 4]!))]);
+    expect(r.regions).toHaveLength(1);
+    expect(r.regions[0]!.holes).toHaveLength(1);
+  });
+
+  it('otvor se společným vrcholem s vnějším obrysem (oba pořadí)', () => {
+    const tri = [
+      L({ x: 0, y: 0 }, { x: 2, y: 5 }),
+      L({ x: 2, y: 5 }, { x: 5, y: 2 }),
+      L({ x: 5, y: 2 }, { x: 0, y: 0 }),
+    ];
+    for (const segs of [
+      [...sq(0, 0, 10, 10), ...tri],
+      [...tri, ...sq(0, 0, 10, 10)],
+    ]) {
+      const r = buildContours(segs);
+      expect(r.errors).toEqual([]);
+      expect(r.regions).toHaveLength(1);
+      expect(r.regions[0]!.holes).toHaveLength(1);
     }
   });
 });

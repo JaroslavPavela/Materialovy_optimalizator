@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 4.3
-Poslední commit: fix: opravy z revize čtení DXF (krok 4.1)
+Poslední commit: fix: opravy z revize sestavení kontur (krok 4.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -289,3 +289,14 @@ BLOKOVÁNO: ne
   omezená na 0,0001–10 mm, limit 2 mil. segmentů a 100 000 kopií pole.
   Normála se bere jako ±Z jen do odchylky 1e-6 (i u ELLIPSE a SPLINE).
   Téměř plný oblouk (mezera ≤ EPS) je kruh. XREF se nahlásí.
+- 4.2 (revize): Uzly se shlukují „podle lídra" (posun bodu ≤ JOIN_TOL; řetězové
+  shlukování slilo hustou lomenou čáru do bodu). Téměř plný oblouk (> 180°,
+  tětiva ≤ 2·GAP_TOL) se dělí na poloviny. Mezery se uzavírají slitím volného
+  konce s jiným volným koncem, pak i s uzlem obrysu – před odstraněním čar
+  mimo cykly; ty se hledají jako mosty grafu (Tarjan), takže spojka mezi
+  obrysem a otvorem nezničí otvor. Uzel lichého stupně (čára přes obrys,
+  sdílená hrana dvou dílů) = chyba „kontura se větví" a díl z komponenty
+  nevznikne. Samoprůniky a křížení kontur = chyba s místem. Duplicity se
+  porovnávají podle výšky oblouku. Vnoření testuje i středy segmentů.
+  Známé omezení: kolineární čára překrývající část hrany se neslučuje –
+  nahlásí se jako větvení.
