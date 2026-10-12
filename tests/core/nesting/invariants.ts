@@ -1,8 +1,16 @@
+import {
+  differencePolygons,
+  intersectPolygons,
+  offsetPolygons,
+  polygonsArea,
+} from '../../../src/core/geometry/clipper.ts';
 import { EPS } from '../../../src/core/geometry/eps.ts';
 import { polygonBBox, rectToPolygon, ringBBox } from '../../../src/core/geometry/polygon.ts';
 import { placePolygon } from '../../../src/core/geometry/transform.ts';
-import type { Rect } from '../../../src/core/geometry/types.ts';
+import type { Polygon, Rect } from '../../../src/core/geometry/types.ts';
+import { partPolygon } from '../../../src/core/nesting/shapes.ts';
 import {
+  allowedRotations,
   rectRotations,
   sheetMatchesPart,
   totalInstances,
@@ -169,6 +177,107 @@ export function reasonViolations(input: NestingInput, unplaced: readonly Unplace
       (sh) => sh.stock === null && sh.forbiddenZones.length === 0 && fitsUsable(part, sh, s),
     );
     if (easy) v.push(`${label}: vejde se na tabuli s neomezeným skladem bez zón`);
+  }
+  return v;
+}
+
+/** Skutečný tvar umístěného dílu (oblouky s odchylkou 0,001 mm), na tabuli. */
+function placedShape(input: NestingInput, p: Placement) {
+  const part = input.parts.find((x) => x.id === p.partId)!;
+  const local = partPolygon(part, { arcTol: 0.001, simplifyTol: 0 });
+  return placePolygon(local, p.rotation, p.x, p.y);
+}
+
+const AREA_TOL = 1e-4;
+
+/**
+ * Invarianty tvarového nestingu (nezávisle na NFP, přes Clipper):
+ * 1. skutečné tvary nafouknuté o (s − EPS)/2 se nepřekrývají (rozestup ≥ s − EPS),
+ * 2. tvar leží v tabuli zmenšené o okraj,
+ * 3. tvar nafouknutý o s − EPS neprotíná zakázanou zónu,
+ * 4. každý kus umístěn právě jednou, nebo nahlášen jako neumístěný,
+ * 5. natočení povolené, sklad a materiál dodrženy.
+ */
+export function shapeInvariantViolations(
+  input: NestingInput,
+  result: { layouts: readonly SheetLayout[]; unplaced: readonly UnplacedPart[] },
+): string[] {
+  const v: string[] = [];
+  const s = input.params.spacing;
+  const seen = new Map<string, number>();
+  const used = new Map<string, number>();
+  // Offset i záporný (s = 0: tvary se zmenší o EPS/2, dotyk do hloubky EPS projde).
+  const grow = (p: Polygon, d: number) => (d !== 0 ? offsetPolygons([p], d, 'round', 0.001) : [p]);
+
+  result.layouts.forEach((layout, li) => {
+    const sheet = input.sheets.find((x) => x.id === layout.sheetId)!;
+    used.set(sheet.id, (used.get(sheet.id) ?? 0) + 1);
+    const inner = rectToPolygon({
+      // Přesah do EPS je v toleranci.
+      x: sheet.margin - EPS,
+      y: sheet.margin - EPS,
+      width: sheet.width - 2 * sheet.margin + 2 * EPS,
+      height: sheet.height - 2 * sheet.margin + 2 * EPS,
+    });
+    const shapes = layout.placements.map((p) => {
+      const part = input.parts.find((x) => x.id === p.partId)!;
+      const k = `${p.partId}#${p.instance}`;
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+      if (
+        !allowedRotations(part.rotation, input.params.freeRotationStep).some(
+          (r) => Math.abs(r - p.rotation) <= 1e-9,
+        )
+      ) {
+        v.push(`tabule ${li}: ${k} má nepovolené natočení ${p.rotation}`);
+      }
+      if (!sheetMatchesPart(part, sheet)) v.push(`tabule ${li}: ${k} na tabuli jiného materiálu`);
+      const shape = placedShape(input, p);
+      const out = polygonsArea(differencePolygons([shape], [inner]));
+      if (out > AREA_TOL) v.push(`tabule ${li}: ${k} přesahuje užitnou plochu o ${out} mm²`);
+      for (const z of sheet.forbiddenZones) {
+        const hit = polygonsArea(
+          intersectPolygons(grow(shape, s - EPS), [{ outer: z.polygon, holes: [] }]),
+        );
+        if (hit > AREA_TOL) v.push(`tabule ${li}: ${k} zasahuje do zóny ${z.id} (${hit} mm²)`);
+      }
+      const grown = grow(shape, (s - EPS) / 2);
+      return { k, grown, bbox: polygonBBox(grown[0] ?? shape) };
+    });
+    for (let i = 0; i < shapes.length; i++) {
+      for (let j = i + 1; j < shapes.length; j++) {
+        const a = shapes[i]!;
+        const b = shapes[j]!;
+        if (
+          a.bbox.x > b.bbox.x + b.bbox.width ||
+          b.bbox.x > a.bbox.x + a.bbox.width ||
+          a.bbox.y > b.bbox.y + b.bbox.height ||
+          b.bbox.y > a.bbox.y + a.bbox.height
+        ) {
+          continue;
+        }
+        const both = polygonsArea(intersectPolygons(a.grown, b.grown));
+        if (both > AREA_TOL)
+          v.push(`tabule ${li}: ${a.k} a ${b.k} jsou blíž než rozestup (${both} mm²)`);
+      }
+    }
+  });
+  for (const u of result.unplaced) {
+    const k = `${u.partId}#${u.instance}`;
+    seen.set(k, (seen.get(k) ?? 0) + 1);
+  }
+  for (const part of input.parts) {
+    for (let i = 0; i < part.quantity; i++) {
+      const n = seen.get(`${part.id}#${i}`) ?? 0;
+      if (n !== 1) v.push(`kus ${part.id}#${i} je ve výsledku ${n}×`);
+    }
+  }
+  if ([...seen.values()].reduce((a, b) => a + b, 0) !== totalInstances(input.parts)) {
+    v.push('výsledek obsahuje neznámé kusy');
+  }
+  for (const sheet of input.sheets) {
+    const n = used.get(sheet.id) ?? 0;
+    if (sheet.stock !== null && n > sheet.stock)
+      v.push(`formát ${sheet.id}: ${n} tabulí > sklad ${sheet.stock}`);
   }
   return v;
 }

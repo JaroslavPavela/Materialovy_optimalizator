@@ -111,7 +111,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 5.2 NFP díl–díl (Minkowského součet přes Clipper) a IFP (vnitřek
       užitné plochy tabule), zakázané zóny jako překážky; cache NFP podle
       (díl A, rotace A, díl B, rotace B).
-- [ ] 5.3 Placer: pro každý díl a povolené natočení nejnižší a nejlevější
+- [x] 5.3 Placer: pro každý díl a povolené natočení nejnižší a nejlevější
       přípustná pozice; neumístitelné díly → další tabule.
 - [ ] 5.4 Optimalizátor: genetický algoritmus nad pořadím a natočením,
       časový limit, průběžné posílání nejlepšího výsledku do UI.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 5.3
-Poslední commit: fix: opravy z revize tvarů a Minkowského součtu (krok 5.1)
+Aktuální krok: 5.4
+Poslední commit: feat: tvarový placer přes NFP (krok 5.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -349,3 +349,14 @@ BLOKOVÁNO: ne
   s chybou – nevznikne díl bez nedokresleného otvoru. Čára mezi dvěma
   uzavřenými obrysy (spojka) díl nezničí. Import DXF zatím běží v UI vlákně;
   přesun do workeru zvážit v kroku 5.7.
+- 5.3: `core/nesting/placer.ts`. Kritérium „nejnižší a nejlevější" se
+  porovnává podle obalového obdélníku umístěného nafouknutého dílu (ne podle
+  referenčního bodu, který závisí na natočení). Výběr formátu další tabule
+  a důvody neumístění jako v MaxRects. Tolerance skládání SLACK = EPS/2:
+  NFP se zmenší a IFP zvětší o SLACK, jinak by díly přesně na míru (mezera
+  nulové šířky) z přípustné oblasti zmizely; zvolený bod se pak přichytí
+  zpět do přesného IFP (díl u kraje leží přesně na okraji). V tvarovém
+  režimu `nestSteps` spustí placer a navíc všech 16 kombinací MaxRects
+  a vrátí lepší – tvarový režim tak není horší než obalové obdélníky.
+  Porovnání výsledků (`compareRectResults`) přijímá i výsledek bez volných
+  obdélníků. Invarianty tvarového režimu: tests/core/nesting/invariants.ts.

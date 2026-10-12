@@ -9,7 +9,7 @@ import { pointRingDistance, rectToPolygon } from '../../../src/core/geometry/pol
 import { translatePolygon, translateRing } from '../../../src/core/geometry/transform.ts';
 import type { Point, Polygon, Ring } from '../../../src/core/geometry/types.ts';
 import type { Part } from '../../../src/core/model.ts';
-import { feasibleRegion, ifpRect, nfp, NfpCache } from '../../../src/core/nesting/nfp.ts';
+import { feasibleRegion, ifpRect, nfp, NfpCache, SLACK } from '../../../src/core/nesting/nfp.ts';
 import { ShapeCache } from '../../../src/core/nesting/shapes.ts';
 import { arbStarRing } from '../arbitraries.ts';
 
@@ -120,8 +120,11 @@ describe('ifpRect', () => {
   it('rohy IFP = díl se dotýká okrajů užitné plochy', () => {
     const b = sq(-5, 2, 10, 4); // obalový obdélník [-5, 5] × [2, 6]
     const ifp = ifpRect({ x: 0, y: 0, width: 100, height: 50 }, b)!;
-    expect(ifp.outer[0]).toEqual({ x: 5, y: -2 });
-    expect(ifp.outer[2]).toEqual({ x: 95, y: 44 });
+    // Rozšířeno o SLACK (tolerance skládání).
+    expect(ifp.outer[0]!.x).toBeCloseTo(5 - SLACK, 9);
+    expect(ifp.outer[0]!.y).toBeCloseTo(-2 - SLACK, 9);
+    expect(ifp.outer[2]!.x).toBeCloseTo(95 + SLACK, 9);
+    expect(ifp.outer[2]!.y).toBeCloseTo(44 + SLACK, 9);
   });
 
   it('díl větší než plocha → null, přesně na míru → úzký pruh o šířce EPS', () => {
@@ -156,7 +159,8 @@ describe('feasibleRegion a cache', () => {
         const area = polygonsArea(
           intersectPolygons([shapes.at(a, 0)], [translatePolygon(shapes.at(b, 0), p.x, p.y)]),
         );
-        expect(area).toBeLessThan(1e-3);
+        // Překryv nejvýš do hloubky SLACK podél hrany (B má obvod ≈ 80 mm).
+        expect(area).toBeLessThan(80 * SLACK);
       }
     }
   });

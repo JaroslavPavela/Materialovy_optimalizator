@@ -358,21 +358,27 @@ export function packRects(
   return { layouts, unplaced, heuristic, order };
 }
 
-const sheetArea = (input: NestingInput, r: MaxRectsResult) =>
+/** Výsledek k porovnání (MaxRects i tvarový; volné obdélníky jen u MaxRects). */
+export interface ComparableResult {
+  readonly layouts: readonly (SheetLayout & { readonly freeRects?: readonly Rect[] })[];
+  readonly unplaced: readonly UnplacedPart[];
+}
+
+const sheetArea = (input: NestingInput, r: ComparableResult) =>
   r.layouts.reduce((sum, l) => {
     const s = input.sheets.find((x) => x.id === l.sheetId)!;
     return sum + s.width * s.height;
   }, 0);
 
-const unplacedArea = (input: NestingInput, r: MaxRectsResult) =>
+const unplacedArea = (input: NestingInput, r: ComparableResult) =>
   r.unplaced.reduce((sum, u) => {
     const p = input.parts.find((x) => x.id === u.partId)!;
     return sum + p.width * p.height;
   }, 0);
 
-const lastRemnantArea = (r: MaxRectsResult) => {
+const lastRemnantArea = (r: ComparableResult) => {
   const last = r.layouts[r.layouts.length - 1];
-  return last ? Math.max(0, ...last.freeRects.map((f) => f.width * f.height)) : 0;
+  return last?.freeRects ? Math.max(0, ...last.freeRects.map((f) => f.width * f.height)) : 0;
 };
 
 /**
@@ -383,8 +389,8 @@ const lastRemnantArea = (r: MaxRectsResult) => {
  */
 export function compareRectResults(
   input: NestingInput,
-  a: MaxRectsResult,
-  b: MaxRectsResult,
+  a: ComparableResult,
+  b: ComparableResult,
 ): number {
   const missA = unplacedArea(input, a);
   const missB = unplacedArea(input, b);

@@ -1,0 +1,271 @@
+import { EPS } from '../geometry/eps.ts';
+import { ringBBox } from '../geometry/polygon.ts';
+import type { Point, Polygon } from '../geometry/types.ts';
+import {
+  allowedRotations,
+  sheetMatchesPart,
+  type NestingInput,
+  type Part,
+  type Placement,
+  type Sheet,
+  type SheetLayout,
+  type UnplacedPart,
+  type UnplacedReason,
+} from '../model.ts';
+import { usableRect } from './maxrects.ts';
+import { feasibleRegion, ifpBounds, ifpRect, NfpCache, type Obstacle } from './nfp.ts';
+import { inflatedZones, ShapeCache } from './shapes.ts';
+
+/** Kus dílu k umístění; `rotation` = preferované natočení (gen optimalizátoru). */
+export interface ShapeItem {
+  readonly part: Part;
+  readonly instance: number;
+  readonly rotation?: number;
+}
+
+export interface ShapeResult {
+  readonly layouts: readonly SheetLayout[];
+  readonly unplaced: readonly UnplacedPart[];
+}
+
+/** Sdílené výpočty pro jeden vstup: tvary, NFP a nafouknuté zóny tabulí. */
+export class ShapeContext {
+  readonly input: NestingInput;
+  readonly shapes: ShapeCache;
+  readonly nfps: NfpCache;
+  private readonly zones = new Map<string, Polygon[]>();
+
+  constructor(input: NestingInput) {
+    this.input = input;
+    this.shapes = new ShapeCache(input.params.spacing);
+    this.nfps = new NfpCache(this.shapes);
+  }
+
+  zonesOf(sheet: Sheet): Polygon[] {
+    let z = this.zones.get(sheet.id);
+    if (!z) {
+      z = inflatedZones(sheet, this.input.params.spacing);
+      this.zones.set(sheet.id, z);
+    }
+    return z;
+  }
+
+  rotations(part: Part): number[] {
+    return allowedRotations(part.rotation, this.input.params.freeRotationStep);
+  }
+}
+
+interface Placed {
+  readonly part: Part;
+  readonly rotation: number;
+  readonly at: Point;
+}
+
+/** Kandidát umístění: poloha obalového obdélníku pro porovnání „dole, vlevo". */
+interface Candidate {
+  readonly at: Point;
+  readonly rotation: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+/** Je kandidát `a` níž (a při shodě víc vlevo) než `b`? */
+const lower = (a: Candidate, b: Candidate) =>
+  a.bottom < b.bottom - EPS || (a.bottom <= b.bottom + EPS && a.left < b.left - EPS);
+
+/** Jedna tabule při tvarovém skládání. */
+export class ShapeSheet {
+  readonly sheet: Sheet;
+  readonly placed: Placed[] = [];
+  private readonly ctx: ShapeContext;
+
+  constructor(ctx: ShapeContext, sheet: Sheet) {
+    this.ctx = ctx;
+    this.sheet = sheet;
+  }
+
+  /**
+   * Nejnižší a nejlevější přípustná poloha dílu v jednom z natočení
+   * (porovnává se obalový obdélník nafouknutého dílu); `null` = nevejde se.
+   */
+  find(part: Part, rotations: readonly number[]): Candidate | null {
+    const { shapes, nfps, input } = this.ctx;
+    const usable = usableRect(this.sheet, input.params.spacing);
+    const zones = this.ctx.zonesOf(this.sheet);
+    let best: Candidate | null = null;
+    for (const rotation of rotations) {
+      const b = shapes.at(part, rotation).outer;
+      const ifp = ifpRect(usable, b);
+      const exact = ifpBounds(usable, b);
+      if (!ifp || !exact) continue;
+      const obstacles: Obstacle[] = [
+        ...this.placed.map((p) => ({
+          nfp: nfps.parts(p.part, p.rotation, part, rotation),
+          at: p.at,
+        })),
+        ...zones.map((z, i) => ({
+          nfp: nfps.zone(`${this.sheet.id}:${i}`, z, part, rotation),
+          at: { x: 0, y: 0 },
+        })),
+      ];
+      const region = feasibleRegion(ifp, obstacles);
+      const bb = ringBBox(b);
+      for (const poly of region) {
+        for (const ring of [poly.outer, ...poly.holes]) {
+          for (const v of ring) {
+            // Zpět do přesného IFP: díl u kraje užitné plochy přesně na kraji
+            // (posun ≤ SLACK, překryv tím nejvýš 2·SLACK = EPS).
+            const t = {
+              x: Math.min(Math.max(v.x, exact.x0), exact.x1),
+              y: Math.min(Math.max(v.y, exact.y0), exact.y1),
+            };
+            const c: Candidate = { at: t, rotation, bottom: t.y + bb.y, left: t.x + bb.x };
+            if (!best || lower(c, best)) best = c;
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  place(part: Part, c: Candidate): void {
+    this.placed.push({ part, rotation: c.rotation, at: c.at });
+  }
+}
+
+/** Natočení k vyzkoušení: preferované první, pak ostatní povolená. */
+function rotationsFor(ctx: ShapeContext, item: ShapeItem): number[] {
+  const all = ctx.rotations(item.part);
+  if (item.rotation === undefined || !all.includes(item.rotation)) return all;
+  return [item.rotation];
+}
+
+interface Fill {
+  readonly sheet: ShapeSheet;
+  readonly placements: Placement[];
+  readonly placedArea: number;
+  readonly remaining: ShapeItem[];
+}
+
+/** Naplní novou tabuli kusy v daném pořadí; co se nevejde, zůstane. */
+function fillSheet(ctx: ShapeContext, sheet: Sheet, items: readonly ShapeItem[]): Fill {
+  const s = new ShapeSheet(ctx, sheet);
+  const placements: Placement[] = [];
+  const remaining: ShapeItem[] = [];
+  let placedArea = 0;
+  for (const item of items) {
+    if (!sheetMatchesPart(item.part, sheet)) {
+      remaining.push(item);
+      continue;
+    }
+    const preferred = rotationsFor(ctx, item);
+    let c = s.find(item.part, preferred);
+    // Gen s jedním natočením: když se nevejde, zkusit ostatní povolená.
+    if (!c && preferred.length < ctx.rotations(item.part).length) {
+      c = s.find(item.part, ctx.rotations(item.part));
+    }
+    if (!c) {
+      remaining.push(item);
+      continue;
+    }
+    s.place(item.part, c);
+    placements.push({
+      partId: item.part.id,
+      instance: item.instance,
+      x: c.at.x,
+      y: c.at.y,
+      rotation: c.rotation,
+    });
+    placedArea += item.part.width * item.part.height;
+  }
+  return { sheet: s, placements, placedArea, remaining };
+}
+
+/** Proč se díl nevejde na žádnou prázdnou vhodnou tabuli; `null` = vejde se. */
+export function shapeUnplaceableReason(ctx: ShapeContext, part: Part): UnplacedReason | null {
+  const matchingAny = ctx.input.sheets.filter((s) => sheetMatchesPart(part, s));
+  if (matchingAny.length === 0) return 'no-matching-sheet';
+  const matching = matchingAny.filter((s) => s.stock !== 0);
+  if (matching.length === 0) return 'out-of-sheets';
+  const rotations = ctx.rotations(part);
+  const spacing = ctx.input.params.spacing;
+  const sizeOk = matching.filter((s) =>
+    rotations.some((r) => ifpRect(usableRect(s, spacing), ctx.shapes.at(part, r).outer)),
+  );
+  if (sizeOk.length === 0) return 'too-large';
+  const fits = sizeOk.some((s) => new ShapeSheet(ctx, s).find(part, rotations) !== null);
+  return fits ? null : 'blocked';
+}
+
+/**
+ * Tvarové skládání kusů v daném pořadí (bottom-left přes NFP). Tabule se
+ * plní postupně; formát další tabule se vybere jako v MaxRects (zbytky
+ * přednostně, pak největší umístěná plocha, pak menší tabule).
+ */
+export function placeShapes(ctx: ShapeContext, items: readonly ShapeItem[]): ShapeResult {
+  const { sheets } = ctx.input;
+  const unplaced: UnplacedPart[] = [];
+  const reasons = new Map<string, UnplacedReason | null>();
+  let remaining: ShapeItem[] = [];
+  for (const item of items) {
+    let reason = reasons.get(item.part.id);
+    if (reason === undefined) {
+      reason = shapeUnplaceableReason(ctx, item.part);
+      reasons.set(item.part.id, reason);
+    }
+    if (reason) unplaced.push({ partId: item.part.id, instance: item.instance, reason });
+    else remaining.push(item);
+  }
+
+  const stock = sheets.map((s) => s.stock);
+  const layouts: SheetLayout[] = [];
+  while (remaining.length > 0) {
+    let best: { index: number; fill: Fill } | null = null;
+    sheets.forEach((sheet, index) => {
+      if (stock[index] === 0) return;
+      const fill = fillSheet(ctx, sheet, remaining);
+      if (fill.placements.length === 0) return;
+      if (!best) {
+        best = { index, fill };
+        return;
+      }
+      const b: { index: number; fill: Fill } = best;
+      const bs = sheets[b.index]!;
+      const remnantFirst = Number(!!sheet.remnant) - Number(!!bs.remnant);
+      const better =
+        remnantFirst > 0 ||
+        (remnantFirst === 0 &&
+          (fill.placedArea > b.fill.placedArea + EPS ||
+            (Math.abs(fill.placedArea - b.fill.placedArea) <= EPS &&
+              sheet.width * sheet.height < bs.width * bs.height - EPS)));
+      if (better) best = { index, fill };
+    });
+    if (!best) break;
+    const chosen: { index: number; fill: Fill } = best;
+    const s = stock[chosen.index];
+    if (s !== null && s !== undefined) stock[chosen.index] = s - 1;
+    layouts.push({ sheetId: sheets[chosen.index]!.id, placements: chosen.fill.placements });
+    remaining = chosen.fill.remaining;
+  }
+  for (const item of remaining) {
+    unplaced.push({ partId: item.part.id, instance: item.instance, reason: 'out-of-sheets' });
+  }
+  unplaced.sort((a, b) =>
+    a.partId < b.partId ? -1 : a.partId > b.partId ? 1 : a.instance - b.instance,
+  );
+  return { layouts, unplaced };
+}
+
+/** Výchozí pořadí: kusy podle plochy dílu sestupně (stabilně podle zadání). */
+export function defaultShapeOrder(input: NestingInput): ShapeItem[] {
+  const items = input.parts.flatMap((part, partIndex) =>
+    Array.from({ length: part.quantity }, (_, instance) => ({ part, partIndex, instance })),
+  );
+  items.sort(
+    (a, b) =>
+      b.part.width * b.part.height - a.part.width * a.part.height ||
+      a.partIndex - b.partIndex ||
+      a.instance - b.instance,
+  );
+  return items.map(({ part, instance }) => ({ part, instance }));
+}

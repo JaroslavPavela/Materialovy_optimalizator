@@ -1,10 +1,22 @@
-import { differencePolygons, minkowskiSum, unionPolygons } from '../geometry/clipper.ts';
+import {
+  differencePolygons,
+  minkowskiSum,
+  offsetPolygons,
+  unionPolygons,
+} from '../geometry/clipper.ts';
 import { EPS } from '../geometry/eps.ts';
 import { ringBBox } from '../geometry/polygon.ts';
 import { translatePolygon } from '../geometry/transform.ts';
 import type { Point, Polygon, Rect, Ring } from '../geometry/types.ts';
 import type { Part } from '../model.ts';
 import type { ShapeCache } from './shapes.ts';
+
+/**
+ * Tolerance skládání (mm): NFP se zmenší a IFP zvětší o SLACK, aby díly
+ * přesně na míru (mezera nulové šířky) nezmizely z přípustné oblasti.
+ * Překryv / přesah je tím nejvýš SLACK, tedy pod EPS.
+ */
+export const SLACK = EPS / 2;
 
 /**
  * No-fit polygon: množina posunů t, při kterých se B + t překrývá s pevným A
@@ -20,30 +32,43 @@ export function nfp(a: Ring, b: Ring): Polygon[] {
   );
 }
 
-/**
- * Inner-fit polygon obdélníkové užitné plochy: posuny t, při kterých B + t
- * leží celý v obdélníku `usable`. Pro obdélník je přesný (stačí obalový
- * obdélník B). `null`, když se B nevejde.
- */
-export function ifpRect(usable: Rect, b: Ring): Polygon | null {
+/** Přesné meze IFP (bez SLACK): rozsah posunů x0…x1, y0…y1; `null` = nevejde se. */
+export interface IfpBounds {
+  readonly x0: number;
+  readonly x1: number;
+  readonly y0: number;
+  readonly y1: number;
+}
+
+export function ifpBounds(usable: Rect, b: Ring): IfpBounds | null {
   const bb = ringBBox(b);
   const x0 = usable.x - bb.x;
   const y0 = usable.y - bb.y;
   const x1 = usable.x + usable.width - (bb.x + bb.width);
   const y1 = usable.y + usable.height - (bb.y + bb.height);
   if (x1 < x0 - EPS || y1 < y0 - EPS) return null;
-  // Díl přesně na míru: IFP degeneruje na úsečku/bod – rozšíříme o EPS,
-  // aby ho booleovské operace neztratily (posun o EPS je pod tolerancí).
-  const w = Math.max(x1 - x0, 0);
-  const h = Math.max(y1 - y0, 0);
-  const ex = w < EPS ? EPS / 2 : 0;
-  const ey = h < EPS ? EPS / 2 : 0;
+  return { x0, x1: Math.max(x0, x1), y0, y1: Math.max(y0, y1) };
+}
+
+/**
+ * Inner-fit polygon obdélníkové užitné plochy: posuny t, při kterých B + t
+ * leží celý v obdélníku `usable` (pro obdélník přesně – stačí obalový
+ * obdélník B), rozšířený o SLACK: díl přesně na míru dá místo úsečky úzký
+ * pruh, který booleovské operace neztratí. `null`, když se B nevejde.
+ */
+export function ifpRect(usable: Rect, b: Ring): Polygon | null {
+  const f = ifpBounds(usable, b);
+  if (!f) return null;
+  const xa = f.x0 - SLACK;
+  const xb = f.x1 + SLACK;
+  const ya = f.y0 - SLACK;
+  const yb = f.y1 + SLACK;
   return {
     outer: [
-      { x: x0 - ex, y: y0 - ey },
-      { x: x0 + w + ex, y: y0 - ey },
-      { x: x0 + w + ex, y: y0 + h + ey },
-      { x: x0 - ex, y: y0 + h + ey },
+      { x: xa, y: ya },
+      { x: xb, y: ya },
+      { x: xb, y: yb },
+      { x: xa, y: yb },
     ],
     holes: [],
   };
@@ -67,6 +92,9 @@ export function feasibleRegion(ifp: Polygon, obstacles: readonly Obstacle[]): Po
   return differencePolygons([ifp], blocked);
 }
 
+/** NFP zmenšený o SLACK (přesná mezera mezi díly zůstane přípustná). */
+const slack = (polys: Polygon[]) => offsetPolygons(polys, -SLACK);
+
 /** Cache NFP podle (díl A, natočení A, díl B, natočení B) a (zóna, díl B, natočení B). */
 export class NfpCache {
   private readonly cache = new Map<string, Polygon[]>();
@@ -81,14 +109,14 @@ export class NfpCache {
   /** NFP umístěného dílu A (natočeného o rotA) pro díl B natočený o rotB. */
   parts(a: Part, rotA: number, b: Part, rotB: number): Polygon[] {
     return this.memo(`${a.id}:${rotA}|${b.id}:${rotB}`, () =>
-      nfp(this.shapes.at(a, rotA).outer, this.shapes.at(b, rotB).outer),
+      slack(nfp(this.shapes.at(a, rotA).outer, this.shapes.at(b, rotB).outer)),
     );
   }
 
   /** NFP zakázané zóny (už nafouknuté, v souřadnicích tabule) pro díl B. */
   zone(key: string, zone: Polygon, b: Part, rotB: number): Polygon[] {
     return this.memo(`zona:${key}|${b.id}:${rotB}`, () =>
-      nfp(zone.outer, this.shapes.at(b, rotB).outer),
+      slack(nfp(zone.outer, this.shapes.at(b, rotB).outer)),
     );
   }
 

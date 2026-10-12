@@ -10,8 +10,10 @@ import {
   packRects,
   PART_ORDERS,
   RECT_HEURISTICS,
+  type ComparableResult,
   type MaxRectsResult,
 } from './maxrects.ts';
+import { defaultShapeOrder, placeShapes, ShapeContext } from './placer.ts';
 
 /** Průběh výpočtu po jednom kroku. */
 export interface NestProgress {
@@ -45,7 +47,8 @@ export function rectResultToNesting(input: NestingInput, r: MaxRectsResult): Nes
  * výsledkem; volající může mezi kroky přestat (`return()` generátoru)
  * a použít poslední `best`. Návratová hodnota = konečný výsledek.
  *
- * Režim `shape` zatím používá obalové obdélníky (tvarový nesting – fáze 5).
+ * Režim `shape`: nejdřív tvarový placer (NFP), pak i všechny kombinace
+ * MaxRects – tvarový režim tak nikdy nedopadne hůř než obalové obdélníky.
  */
 export function* nestSteps(input: NestingInput): Generator<NestProgress, NestOutcome, void> {
   const issues = validateNestingInput(input);
@@ -54,16 +57,32 @@ export function* nestSteps(input: NestingInput): Generator<NestProgress, NestOut
   const combos = PART_ORDERS.flatMap((order) =>
     RECT_HEURISTICS.map((heuristic) => ({ order, heuristic })),
   );
-  let best: MaxRectsResult | null = null;
+  const shape = input.params.mode === 'shape';
+  const totalSteps = combos.length + (shape ? 1 : 0);
+  let best: ComparableResult | null = null;
   let bestResult: NestingResult | null = null;
-  for (let i = 0; i < combos.length; i++) {
-    const { heuristic, order } = combos[i]!;
-    const r = packRects(input, heuristic, order);
+  let step = 0;
+  const consider = (r: ComparableResult, toResult: () => NestingResult) => {
     if (!best || compareRectResults(input, r, best) < 0) {
       best = r;
-      bestResult = rectResultToNesting(input, r);
+      bestResult = toResult();
     }
-    yield { step: i + 1, totalSteps: combos.length, best: bestResult! };
+  };
+
+  if (shape) {
+    const ctx = new ShapeContext(input);
+    const r = placeShapes(ctx, defaultShapeOrder(input));
+    consider(r, () => ({
+      layouts: r.layouts,
+      unplaced: r.unplaced,
+      metrics: computeMetrics(input, r.layouts, r.unplaced.length),
+    }));
+    yield { step: ++step, totalSteps, best: bestResult! };
+  }
+  for (const { heuristic, order } of combos) {
+    const r = packRects(input, heuristic, order);
+    consider(r, () => rectResultToNesting(input, r));
+    yield { step: ++step, totalSteps, best: bestResult! };
   }
   return { ok: true, result: bestResult!, stopped: false };
 }
