@@ -40,7 +40,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 1.2 Ověření licencí všech závislostí (`npm view <balík> license`),
       zápis do docs/zavislosti.md.
       Hotovo: tabulka balík – verze – licence, žádná nepovolená.
-- [ ] 1.3 Datový model `core/model.ts`: Part, Sheet, NestingParams,
+- [x] 1.3 Datový model `core/model.ts`: Part, Sheet, NestingParams,
       Placement, NestingResult, ForbiddenZone; rotace jako
       'free' | 'ortho' | 'flip' | 'locked'.
 - [ ] 1.4 Geometrie `core/geometry/`: Point, Polygon (vnější + otvory),
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 1.3
-Poslední commit: docs: ověření licencí závislostí (krok 1.2)
+Aktuální krok: 1.4
+Poslední commit: feat: datový model jádra (krok 1.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -165,3 +165,8 @@ BLOKOVÁNO: ne
 - 1.2: Tranzitivně jsou přítomny `lightningcss` (MPL-2.0, přes vite),
   `caniuse-lite` (CC-BY-4.0) a `minimatch` (BlueOak-1.0.0). Nejde o GPL/AGPL
   a jsou jen v nástrojích buildu, ne v kódu aplikace – ponecháno, viz docs/zavislosti.md.
+- 1.3: Typy `Point`, `Ring`, `Polygon`, `Rect`, `Contour` (vrcholy s bulge jako
+  LWPOLYLINE – zachová oblouky pro export) a `EPS` vznikly v `core/geometry/`
+  už v kroku 1.3, protože je model potřebuje; funkce nad nimi doplní krok 1.4.
+- 1.3: Subagent `revize-geometrie` se načte až po restartu relace – revize
+  proběhla obecným subagentem s jeho instrukcemi.
