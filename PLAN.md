@@ -66,7 +66,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 2.3 `core/metrics.ts`: využití po tabulích i celkem, odpad,
       největší volný obdélník (zbytek).
 - [x] 2.4 Web Worker (Comlink): výpočet mimo UI vlákno, průběh, zrušení.
-- [ ] 2.5 UI: nahrání souboru (drag & drop), editovatelná tabulka dílů,
+- [x] 2.5 UI: nahrání souboru (drag & drop), editovatelná tabulka dílů,
       nastavení tabulí (formáty, počty, okraj, zakázané zóny) a parametrů
       (rozestup, rotace), tlačítko Vypočítat, náhled v SVG (zoom, posun,
       popisky, barva podle dílu), přepínání tabulí, souhrn využití.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 2.5
-Poslední commit: fix: opravy z revize MaxRects (krok 2.2)
+Aktuální krok: 2.6
+Poslední commit: feat: UI – import, tabulka dílů, tabule, výpočet a náhled plánu (krok 2.5)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -210,3 +210,12 @@ BLOKOVÁNO: ne
   přijde ve fázi 5. Vitest nově spouští `tests/**/*.test.ts` (i tests/worker).
 - 2.2 (revize): Formáty se skladem 0 se při určení důvodu neumístění
   nepočítají; vejde-li se díl jen na takový formát, důvod je „došly tabule".
+- 2.5: Při více než 12 tabulích se místo záložek přepíná výběrem a šipkami
+  (soubor s 10 tisíci kusy dá přes 1000 tabulí). Výsledek je uložen spolu se
+  vstupem, ze kterého vznikl; po změně zadání UI upozorní, že plán je zastaralý.
+- 2.5: Výkon: `velky-1000-dilu.csv` (10 389 kusů) trvá jeden krok MaxRects
+  ~6 s v Node a ~9 s ve workeru prohlížeče, celý výpočet (16 kroků) přes 1,5 min.
+  UI nezamrzá (nejdelší blokování hlavního vlákna ~0,2 s), zastavení funguje;
+  optimalizace patří do kroku 5.7. Nad rámec kroku přidány testy store
+  (tests/state) a E2E průchod UI (tests/e2e/ui.spec.ts); E2E s velkým souborem
+  používá CSS lokátory – `getByRole` s názvem nad 8000 poli blokoval stránku.

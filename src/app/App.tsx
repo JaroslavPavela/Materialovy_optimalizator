@@ -1,8 +1,29 @@
+import { CalculatePanel } from '../ui/CalculatePanel.tsx';
+import { FileDrop } from '../ui/FileDrop.tsx';
+import { PartsTable } from '../ui/PartsTable.tsx';
+import { PlanView } from '../ui/PlanView.tsx';
+import { ResultSummary } from '../ui/ResultSummary.tsx';
+import { SheetSettings } from '../ui/SheetSettings.tsx';
+
 export function App() {
   return (
-    <main className="app">
-      <h1>Materiálový optimalizátor</h1>
-      <p>Nářezové plány pro CNC.</p>
-    </main>
+    <div className="app">
+      <header className="app-header">
+        <h1>Materiálový optimalizátor</h1>
+        <p className="muted">Nářezové plány pro CNC.</p>
+      </header>
+      <div className="layout">
+        <aside className="inputs">
+          <FileDrop />
+          <PartsTable />
+          <SheetSettings />
+        </aside>
+        <main className="results">
+          <CalculatePanel />
+          <ResultSummary />
+          <PlanView />
+        </main>
+      </div>
+    </div>
   );
 }
