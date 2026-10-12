@@ -77,7 +77,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Fáze 3 – Export
 
-- [ ] 3.1 `core/export/dxf-writer.ts`: DXF R12 ASCII (nejširší kompatibilita
+- [x] 3.1 `core/export/dxf-writer.ts`: DXF R12 ASCII (nejširší kompatibilita
       s CAM), vrstvy TABULE, DILY, OTVORY, POPISKY, oblouky zachovány jako
       ARC; jeden soubor na tabuli, všechny tabule jako ZIP (fflate).
       Hotovo: test „zapiš → přečti dxf-parserem → stejné souřadnice v EPS".
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 3.1
-Poslední commit: test: E2E nahrání CSV → plán a využití (krok 2.7)
+Aktuální krok: 3.2
+Poslední commit: feat: export DXF R12 a ZIP všech tabulí (krok 3.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -233,3 +233,10 @@ BLOKOVÁNO: ne
   tabulátor, UTF-16), ne jen jednu.
 - Konec fáze 2: push opět selhal – repozitář stále nemá nastavený remote
   („No configured push destination"). Pokračuji.
+- 3.1: Obrysy se ve výchozím stavu zapisují jako uzavřená POLYLINE s bulge
+  (oblouky přesně, obrys je pro CAM jeden řetěz); volba `segments: 'lines-arcs'`
+  zapíše jednotlivé LINE a ARC, plný kruh je v obou režimech CIRCLE. Zakázané
+  zóny jdou na vrstvu TABULE. Text mimo ASCII se zapisuje jako \U+XXXX
+  (R12 nemá UTF-8). Nad rámec kroku: `placedContours` v core/placed.ts
+  (obrysy umístěného dílu s oblouky – využije i SVG a krok 4.5) a exportní
+  panel v UI (DXF aktuální tabule, ZIP všech) s E2E testem stažení.

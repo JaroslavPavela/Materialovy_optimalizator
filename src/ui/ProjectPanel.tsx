@@ -1,16 +1,7 @@
 import { useRef, useState } from 'react';
 import { serializeProject } from '../core/project.ts';
 import { useAppStore } from '../state/store.ts';
-
-/** Stáhne text jako soubor. */
-function download(fileName: string, text: string, type: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
+import { download } from './download.ts';
 
 /** Nový projekt, uložení a načtení projektu jako JSON. */
 export function ProjectPanel() {
