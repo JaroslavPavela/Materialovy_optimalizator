@@ -1,6 +1,8 @@
 import { EPS } from '../geometry/eps.ts';
-import { ringBBox } from '../geometry/polygon.ts';
-import type { Point, Polygon } from '../geometry/types.ts';
+import { intersectPolygons, polygonsArea } from '../geometry/clipper.ts';
+import { polygonBBox, ringBBox } from '../geometry/polygon.ts';
+import { translatePolygon } from '../geometry/transform.ts';
+import type { Point, Polygon, Ring } from '../geometry/types.ts';
 import {
   allowedRotations,
   sheetMatchesPart,
@@ -76,6 +78,15 @@ interface Candidate {
   readonly left: number;
 }
 
+/** Kolik nejlepších kandidátů nejvýš ověřit průnikem, než se díl vzdá. */
+const MAX_CHECKED = 50;
+
+const ringPerimeter = (r: Ring) =>
+  r.reduce(
+    (s, p, i) => s + Math.hypot(r[(i + 1) % r.length]!.x - p.x, r[(i + 1) % r.length]!.y - p.y),
+    0,
+  );
+
 /** Je kandidát `a` níž (a při shodě víc vlevo) než `b`? */
 const lower = (a: Candidate, b: Candidate) =>
   a.bottom < b.bottom - EPS || (a.bottom <= b.bottom + EPS && a.left < b.left - EPS);
@@ -104,7 +115,7 @@ export class ShapeSheet {
     const { shapes, nfps, input } = this.ctx;
     const usable = usableRect(this.sheet, input.params.spacing);
     const zones = this.ctx.zonesOf(this.sheet);
-    let best: Candidate | null = null;
+    const candidates: Candidate[] = [];
     for (const rotation of rotations) {
       const b = shapes.at(part, rotation).outer;
       const ifp = ifpRect(usable, b);
@@ -134,18 +145,44 @@ export class ShapeSheet {
         for (const ring of [poly.outer, ...poly.holes]) {
           for (const v of ring) {
             // Zpět do přesného IFP: díl u kraje užitné plochy přesně na kraji
-            // (posun ≤ SLACK, překryv tím nejvýš 2·SLACK = EPS).
+            // (posun ≤ SLACK v každé ose; s převisem do NFP ≤ SLACK celkem < EPS).
             const t = {
               x: Math.min(Math.max(v.x, exact.x0), exact.x1),
               y: Math.min(Math.max(v.y, exact.y0), exact.y1),
             };
-            const c: Candidate = { at: t, rotation, bottom: t.y + bb.y, left: t.x + bb.x };
-            if (!best || lower(c, best)) best = c;
+            candidates.push({ at: t, rotation, bottom: t.y + bb.y, left: t.x + bb.x });
           }
         }
       }
     }
-    return best;
+    candidates.sort((a, b) => (lower(a, b) ? -1 : lower(b, a) ? 1 : 0));
+    // Pojistka: kandidát se ověří skutečným průnikem nafouknutých tvarů –
+    // numerický artefakt v NFP nesmí vést k dílu položenému přes jiný.
+    for (const c of candidates.slice(0, MAX_CHECKED)) {
+      if (this.fits(part, c)) return c;
+    }
+    return null;
+  }
+
+  /**
+   * Nepřekrývá se díl v poloze `c` s umístěnými díly ani se zónami víc, než
+   * dovoluje tolerance skládání? (plocha ≤ EPS × obvod = průměrná hloubka EPS)
+   */
+  private fits(part: Part, c: Candidate): boolean {
+    const { shapes } = this.ctx;
+    const b = translatePolygon(shapes.at(part, c.rotation), c.at.x, c.at.y);
+    const bb = polygonBBox(b);
+    const tol = EPS * ringPerimeter(b.outer);
+    const overlaps = (other: Polygon) => {
+      const ob = polygonBBox(other);
+      if (ob.x > bb.x + bb.width || bb.x > ob.x + ob.width) return false;
+      if (ob.y > bb.y + bb.height || bb.y > ob.y + ob.height) return false;
+      return polygonsArea(intersectPolygons([b], [{ outer: other.outer, holes: [] }])) > tol;
+    };
+    for (const p of this.placed) {
+      if (overlaps(translatePolygon(shapes.at(p.part, p.rotation), p.at.x, p.at.y))) return false;
+    }
+    return !this.ctx.zonesOf(this.sheet).some(overlaps);
   }
 
   place(part: Part, c: Candidate): void {

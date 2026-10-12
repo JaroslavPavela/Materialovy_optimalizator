@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { EPS } from '../../../src/core/geometry/eps.ts';
 import { polygonBBox } from '../../../src/core/geometry/polygon.ts';
@@ -203,4 +204,16 @@ describe('tvarový placer', () => {
     const inp = input([dPart('d', 5), lPart('l', 3)], [sheet()], 3);
     expect(run(inp)).toEqual(run(inp));
   });
+});
+
+describe('regrese z revize placeru', () => {
+  it.each(['nfp-mikrootvor-dil.json', 'nfp-mikrootvor-zona.json'])(
+    '%s: falešný mikrootvor v NFP nevede k dílu přes jiný díl ani zónu',
+    (name) => {
+      const inp = JSON.parse(
+        readFileSync(new URL(`../../fixtures/nesting/${name}`, import.meta.url), 'utf8'),
+      ) as NestingInput;
+      expect(shapeInvariantViolations(inp, run(inp))).toEqual([]);
+    },
+  );
 });

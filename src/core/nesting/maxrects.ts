@@ -1,6 +1,7 @@
 import { EPS } from '../geometry/eps.ts';
 import { ringBBox } from '../geometry/polygon.ts';
 import { translationForCorner } from '../geometry/transform.ts';
+import { placePart } from '../placed.ts';
 import type { Rect } from '../geometry/types.ts';
 import {
   rectRotations,
@@ -381,6 +382,30 @@ const lastRemnantArea = (r: ComparableResult) => {
   return last?.freeRects ? Math.max(0, ...last.freeRects.map((f) => f.width * f.height)) : 0;
 };
 
+const hasFreeRects = (r: ComparableResult) => r.layouts.at(-1)?.freeRects !== undefined;
+
+/**
+ * Volný pruh na poslední tabuli: větší z pruhů vpravo a nahoře od obalových
+ * obdélníků umístěných dílů (v ploše tabule bez okraje).
+ */
+function lastStripArea(input: NestingInput, r: ComparableResult): number {
+  const last = r.layouts.at(-1);
+  if (!last) return 0;
+  const sheet = input.sheets.find((s) => s.id === last.sheetId)!;
+  const parts = new Map(input.parts.map((p) => [p.id, p]));
+  const m = sheet.margin;
+  let maxX = m;
+  let maxY = m;
+  for (const p of last.placements) {
+    const bb = placePart(parts.get(p.partId)!, p).bbox;
+    maxX = Math.max(maxX, bb.x + bb.width);
+    maxY = Math.max(maxY, bb.y + bb.height);
+  }
+  const w = sheet.width - 2 * m;
+  const h = sheet.height - 2 * m;
+  return Math.max(0, (sheet.width - m - maxX) * h, (sheet.height - m - maxY) * w);
+}
+
 /**
  * Porovnání dvou výsledků: záporné číslo = `a` je lepší.
  * (1) menší plocha neumístěných kusů, (2) méně neumístěných kusů,
@@ -400,8 +425,11 @@ export function compareRectResults(
   const areaB = sheetArea(input, b);
   if (Math.abs(areaA - areaB) > EPS) return areaA - areaB;
   if (a.layouts.length !== b.layouts.length) return a.layouts.length - b.layouts.length;
-  const remA = lastRemnantArea(a);
-  const remB = lastRemnantArea(b);
+  // Zbytek: u dvou výsledků MaxRects největší volný obdélník; jinak (tvarový
+  // výsledek nemá volné obdélníky) pro oba stejně – volný pruh na poslední tabuli.
+  const rects = hasFreeRects(a) && hasFreeRects(b);
+  const remA = rects ? lastRemnantArea(a) : lastStripArea(input, a);
+  const remB = rects ? lastRemnantArea(b) : lastStripArea(input, b);
   if (Math.abs(remA - remB) > EPS) return remB - remA;
   return 0;
 }

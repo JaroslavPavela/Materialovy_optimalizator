@@ -113,11 +113,20 @@ const angleKey = (deg: number) => {
 /** Klíč z částí, které nemohou obsahovat oddělovač \u0000. */
 const key = (...parts: readonly (string | number)[]) => parts.join('\u0000');
 
+/** Šířka štěrbin a otvorů, které vyčištění NFP zacelí (mm). */
+const CLOSE = EPS / 4;
+
 /**
- * NFP zmenšený o SLACK (přesná mezera mezi díly zůstane přípustná).
- * Zaoblené rohy: ostré rohy by vyduté vrcholy posunuly až o 2·SLACK.
+ * Vyčištěný NFP zmenšený o SLACK. Sjednocení v Clipperu zaokrouhluje
+ * průsečíky a uvnitř NFP pak zůstávají falešné mikrootvory a štěrbiny
+ * (≈ 1 jednotka Clipperu) – placer by do nich vložil díl přes jiný díl.
+ * Morfologické uzavření: rozšíření o CLOSE (ostré rohy – nic se neztratí)
+ * zacelí mezery užší než 2·CLOSE, zmenšení o CLOSE + SLACK se zaoblenými
+ * rohy pak vrátí obrys a nechá přesnou mezeru mezi díly přípustnou
+ * (převis do NFP nejvýš SLACK).
  */
-const slack = (polys: Polygon[]) => offsetPolygons(polys, -SLACK, 'round', SLACK / 4);
+const slack = (polys: Polygon[]) =>
+  offsetPolygons(offsetPolygons(polys, CLOSE), -(CLOSE + SLACK), 'round', (CLOSE + SLACK) / 4);
 
 /**
  * Cache NFP. Díl–díl podle relativního natočení: NFP(A, rA, B, rB) =

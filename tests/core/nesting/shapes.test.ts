@@ -204,7 +204,8 @@ describe('nafouknutí natočených dílů', () => {
     const free = new ShapeCache(10, {}, 45).at(rect, 45);
     const w = Math.max(...free.outer.map((p) => p.x)) - Math.min(...free.outer.map((p) => p.x));
     expect(w).toBeGreaterThanOrEqual(exact45 - 0.01);
-    expect(w).toBeLessThan(exact45 + 0.1);
+    // Rezerva na tětivy zaoblení (2 × 0,15 mm) – o řád těsnější než ostré rohy (+4,1 mm).
+    expect(w).toBeLessThan(exact45 + 0.4);
     // Jen násobky 90°: ostré rohy, obdélník přesně o s větší.
     const ortho = new ShapeCache(10, {}, 90).inflated(rect);
     expect(polygonsArea([ortho])).toBeCloseTo(110 * 60, 6);

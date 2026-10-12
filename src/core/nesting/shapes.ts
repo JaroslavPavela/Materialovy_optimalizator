@@ -53,7 +53,7 @@ export function partPolygon(part: Part, opts: ShapeOptions = {}): Polygon {
 }
 
 /** Tolerance zaoblení rohů u offsetu „round" (mm) a rezerva na ni. */
-const ROUND_ARC_TOL = 0.01;
+const ROUND_ARC_TOL = 0.05;
 /** Clipper zaokrouhluje počet kroků oblouku: tětiva až ≈ 2,25 × tolerance dovnitř. */
 const ROUND_MARGIN = 3 * ROUND_ARC_TOL;
 
@@ -117,6 +117,26 @@ export function inflatedZones(sheet: Sheet, spacing: number): Polygon[] {
   return spacing > 0 ? offsetPolygons(zones, spacing / 2) : zones;
 }
 
+/** Nejvýš tolik vrcholů vnějšího obrysu pro NFP (Minkowski je kvadratický). */
+export const MAX_NEST_VERTICES = 40;
+
+/**
+ * Omezí počet vrcholů vnějšího obrysu konzervativně: zjednoduší ho
+ * (Ramer–Douglas–Peucker) s rostoucí tolerancí a nafoukne o skutečnou
+ * odchylku s ostrými rohy – každý bod původní hranice leží do této
+ * odchylky od zjednodušené, takže výsledek původní tvar vždy obsahuje.
+ */
+export function boundComplexity(poly: Polygon, maxVertices = MAX_NEST_VERTICES): Polygon {
+  if (poly.outer.length <= maxVertices) return poly;
+  for (let tol = 0.05; ; tol *= 2) {
+    const s = simplifyRingWithError(poly.outer, tol);
+    if (s.ring.length > maxVertices && tol < 1e3) continue;
+    const grown = offsetPolygons([{ outer: s.ring, holes: poly.holes }], s.error);
+    if (grown.length === 0) return poly;
+    return grown.reduce((a, b) => (ringArea(b.outer) > ringArea(a.outer) ? b : a));
+  }
+}
+
 /** Cache nafouknutých a otočených tvarů podle (díl, rozestup, natočení). */
 export class ShapeCache {
   private readonly base = new Map<string, Polygon>();
@@ -141,7 +161,9 @@ export class ShapeCache {
     let p = this.base.get(part.id);
     if (!p) {
       const offAxis = allowedRotations(part.rotation, this.freeStep).some((r) => r % 90 !== 0);
-      p = inflatedPartPolygon(part, this.spacing, this.opts, offAxis ? 'round' : 'miter');
+      p = boundComplexity(
+        inflatedPartPolygon(part, this.spacing, this.opts, offAxis ? 'round' : 'miter'),
+      );
       this.base.set(part.id, p);
     }
     return p;

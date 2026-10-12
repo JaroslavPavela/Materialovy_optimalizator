@@ -188,7 +188,8 @@ function placedShape(input: NestingInput, p: Placement) {
   return placePolygon(local, p.rotation, p.x, p.y);
 }
 
-const AREA_TOL = 1e-4;
+/** Tolerance plochy průniku – dotyk má plochu ≈ 0, vniknutí do hloubky d ≈ d². */
+const AREA_TOL = 1e-6;
 
 /**
  * Invarianty tvarového nestingu (nezávisle na NFP, přes Clipper):
@@ -207,7 +208,9 @@ export function shapeInvariantViolations(
   const seen = new Map<string, number>();
   const used = new Map<string, number>();
   // Offset i záporný (s = 0: tvary se zmenší o EPS/2, dotyk do hloubky EPS projde).
-  const grow = (p: Polygon, d: number) => (d !== 0 ? offsetPolygons([p], d, 'round', 0.001) : [p]);
+  // Přesné nafouknutí = zaoblené rohy (ostré by u špiček sahaly až o 2·d dál
+  // a hlásily falešná porušení); tětivy s odchylkou ≤ 2,25·10⁻⁴ mm.
+  const grow = (p: Polygon, d: number) => (d !== 0 ? offsetPolygons([p], d, 'round', 1e-4) : [p]);
 
   result.layouts.forEach((layout, li) => {
     const sheet = input.sheets.find((x) => x.id === layout.sheetId)!;

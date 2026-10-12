@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 5.5
-Poslední commit: feat: genetický optimalizátor tvarového nestingu (krok 5.4)
+Poslední commit: fix: opravy z revize placeru – falešné otvory NFP, pojistka (krok 5.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -378,3 +378,17 @@ BLOKOVÁNO: ne
   zlepšení; průběh `fraction` (0–1) podle času. Determinismus platí pro
   stejné semínko a stejný počet kroků – s časovým limitem závisí počet
   generací na rychlosti stroje (testy používají `maxGenerations`).
+- 5.3 (revize): Sjednocení v Clipperu nechávalo v NFP falešné mikrootvory
+  a štěrbiny (1 jednotka Clipperu), zmenšení o SLACK je zvětšilo a placer
+  do nich položil díl přes jiný díl nebo zónu (20–25 % náhodných běhů).
+  Oprava: NFP se čistí morfologickým uzavřením (rozšíření o EPS/4 s ostrými
+  rohy, zmenšení o EPS/4 + SLACK se zaoblenými) a placer každého kandidáta
+  (seřazené „dole, vlevo") ověří skutečným průnikem nafouknutých tvarů se
+  sousedy a zónami; vezme prvního platného (nejvýš 50). Počet vrcholů
+  nafouknutého obrysu je omezen na 40 (konzervativní zjednodušení + offset
+  o skutečnou odchylku) – Minkowského součet v Clipperu je kvadratický
+  (NFP 68 × 68 vrcholů trval 450 ms). Kritérium zbytku: porovnávají-li se
+  výsledky bez volných obdélníků MaxRects, použije se u obou volný pruh
+  vpravo/nahoře na poslední tabuli. Kontrola invariantů v testech je
+  přísnější (plocha průniku ≤ 1e-6 mm² po přesném nafouknutí o (s − EPS)/2).
+  Případy z revize jsou nové vzorky tests/fixtures/nesting/.
