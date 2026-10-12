@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.log
+.env
+.env.*
+.DS_Store
+
+# Claude Code – osobní a běhové soubory
+.claude/settings.local.json
+.claude/state/
+CLAUDE.local.md
