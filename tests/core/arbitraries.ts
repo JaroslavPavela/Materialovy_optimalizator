@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import type { Point, Polygon, Ring } from '../../src/core/geometry/types.ts';
+import type { ForbiddenZone, Part, RotationMode, Sheet } from '../../src/core/model.ts';
 
 /** Bod v rozsahu typické tabule s rezervou, mm. */
 export const arbPoint: fc.Arbitrary<Point> = fc.record({
@@ -95,3 +96,80 @@ export function expectRelNear(actual: number, expected: number, rel = 1e-9): voi
     throw new Error(`Očekáváno ${expected} ± ${tol}, je ${actual}.`);
   }
 }
+
+/** Obdélníkový díl: 1–2000 mm (celá i desetinná čísla), počet 1–20, libovolná rotace. */
+export const arbRectPart = (id: string): fc.Arbitrary<Part> =>
+  fc.record({
+    id: fc.constant(id),
+    name: fc.constant(`Díl ${id}`),
+    width: fc.oneof(
+      fc.integer({ min: 1, max: 2000 }),
+      fc.double({ min: 1, max: 2000, noNaN: true }),
+    ),
+    height: fc.oneof(
+      fc.integer({ min: 1, max: 2000 }),
+      fc.double({ min: 1, max: 2000, noNaN: true }),
+    ),
+    quantity: fc.integer({ min: 1, max: 20 }),
+    rotation: fc.constantFrom<RotationMode>('free', 'ortho', 'flip', 'locked'),
+  });
+
+/** 1–`max` různých obdélníkových dílů s ID p0, p1, … */
+export const arbRectParts = (max = 6): fc.Arbitrary<Part[]> =>
+  fc
+    .integer({ min: 1, max })
+    .chain((n) => fc.tuple(...Array.from({ length: n }, (_, i) => arbRectPart(`p${i}`))));
+
+/** 0–3 obdélníkové zakázané zóny uvnitř tabule w × h. */
+export const arbForbiddenZones = (w: number, h: number): fc.Arbitrary<ForbiddenZone[]> =>
+  fc
+    .array(
+      fc
+        .record({
+          x: fc.double({ min: 0, max: 0.9, noNaN: true }),
+          y: fc.double({ min: 0, max: 0.9, noNaN: true }),
+          zw: fc.double({ min: 0.01, max: 0.3, noNaN: true }),
+          zh: fc.double({ min: 0.01, max: 0.3, noNaN: true }),
+        })
+        .map(({ x, y, zw, zh }) => {
+          const x0 = x * w;
+          const y0 = y * h;
+          const x1 = Math.min(w, x0 + zw * w);
+          const y1 = Math.min(h, y0 + zh * h);
+          return [
+            { x: x0, y: y0 },
+            { x: x1, y: y0 },
+            { x: x1, y: y1 },
+            { x: x0, y: y1 },
+          ];
+        }),
+      { maxLength: 3 },
+    )
+    .map((polys) => polys.map((polygon, i) => ({ id: `z${i}`, polygon })));
+
+/** Tabule 500–4000 × 500–2000 mm, okraj 0–20, sklad 1–5 nebo neomezeno, se zónami. */
+export const arbSheet = (id: string): fc.Arbitrary<Sheet> =>
+  fc
+    .record({
+      width: fc.integer({ min: 500, max: 4000 }),
+      height: fc.integer({ min: 500, max: 2000 }),
+      margin: fc.oneof(fc.constant(0), fc.double({ min: 0, max: 20, noNaN: true })),
+      stock: fc.oneof(fc.constant(null), fc.integer({ min: 1, max: 5 })),
+    })
+    .chain(({ width, height, margin, stock }) =>
+      arbForbiddenZones(width, height).map((forbiddenZones): Sheet => ({
+        id,
+        name: `${width} × ${height}`,
+        width,
+        height,
+        margin,
+        stock,
+        forbiddenZones,
+      })),
+    );
+
+/** Rozestup 0–10 mm. */
+export const arbSpacing: fc.Arbitrary<number> = fc.oneof(
+  fc.constant(0),
+  fc.double({ min: 0, max: 10, noNaN: true }),
+);

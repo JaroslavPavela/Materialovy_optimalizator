@@ -55,7 +55,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       oddělovače (; , tab), desetinná čárka, UTF-8 s BOM i Windows-1250
       (TextDecoder), chyby s číslem řádku. Fixtures v tests/fixtures/csv/.
       Hotovo: testy na všechny fixtures včetně chybných vstupů.
-- [ ] 2.2 `core/nesting/maxrects.ts`: MaxRects s heuristikami BSSF, BLSF,
+- [x] 2.2 `core/nesting/maxrects.ts`: MaxRects s heuristikami BSSF, BLSF,
       BAF, BL; rotace podle dílu; rozestup (díl nafouknut o rozestup/2,
       užitná plocha = tabule − okraj + rozestup/2); zakázané zóny jako
       předobsazené oblasti; více formátů tabulí s počty skladem; zkusit
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 2.2
-Poslední commit: fix: opravy z revize geometrie (krok 1.4)
+Aktuální krok: 2.3
+Poslední commit: feat: obdélníkový nesting MaxRects (krok 2.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -189,3 +189,11 @@ BLOKOVÁNO: ne
 - 1.4 (revize): Oblouk se sagitou ≤ EPS/10 se bere jako úsečka (šum v bulge
   z CAD dával střed ~10¹² mm daleko a chybu bbox 0,09 mm). Samoprůniky obrysů
   a zakázaných zón validace modelu nekontroluje – řeší import DXF v kroku 4.2.
+- 2.2: Pořadí kritérií pro výběr nejlepšího výsledku: (1) méně neumístěných,
+  (2) menší plocha použitých tabulí, (3) méně tabulí, (4) větší zbytek na
+  poslední tabuli. Skill uvádí počet tabulí před plochou; u více formátů je
+  plocha (spotřeba materiálu) výstižnější, u jednoho formátu je to totéž.
+- 2.2: V obdélníkovém režimu se zakázaná zóna bere jako její obalový obdélník
+  (konzervativně); přesný tvar zóny využije tvarový režim (fáze 5).
+- 2.2: Volba dalšího formátu tabule: zbytky přednostně, pak formát s největší
+  umístěnou plochou, při shodě menší tabule.
