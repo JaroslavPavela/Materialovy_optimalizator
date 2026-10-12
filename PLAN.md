@@ -117,7 +117,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       časový limit, průběžné posílání nejlepšího výsledku do UI.
 - [x] 5.5 Property testy: plocha průniku dvou dílů < EPS, vše uvnitř užitné
       plochy, vzdálenost dílů ≥ rozestup − EPS.
-- [ ] 5.6 UI: volba režimu (obdélníkový / tvarový), průběh, tlačítko
+- [x] 5.6 UI: volba režimu (obdélníkový / tvarový), průběh, tlačítko
       „Zastavit a použít nejlepší".
 - [ ] 5.7 Výkon: benchmark 200 dílů / 10 různých tvarů; první výsledek
       do 5 s, výsledek tvarového režimu nesmí být horší než přes obalový
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 5.6
-Poslední commit: test: property testy tvarového nestingu (krok 5.5)
+Aktuální krok: 5.7
+Poslední commit: feat: volba tvarového režimu a časového limitu v UI (krok 5.6)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -400,3 +400,6 @@ BLOKOVÁNO: ne
   ≥ s − EPS), tvar v tabuli bez okraje (tolerance EPS), od zón ≥ s − EPS,
   každý kus právě jednou, natočení, sklad a materiál. Mimo sadu ověřeno
   200 dalších náhodných případů bez porušení.
+- 5.6: Volba režimu a časový limit (v sekundách) jsou v panelu Parametry,
+  průběh ukazuje procenta podle času; „Zastavit a použít nejlepší" existovalo
+  od kroku 2.5. Build hlásí varování o bloku > 500 kB – řeší krok 7.3.

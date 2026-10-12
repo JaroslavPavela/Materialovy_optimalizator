@@ -1,4 +1,4 @@
-import type { ForbiddenZone, Sheet } from '../core/model.ts';
+import type { ForbiddenZone, NestingMode, Sheet } from '../core/model.ts';
 import { rectZone, useAppStore } from '../state/store.ts';
 import { formatNumber } from './format.ts';
 import { NumberInput } from './NumberInput.tsx';
@@ -247,7 +247,35 @@ export function SheetSettings() {
               onCommit={(v) => v !== null && setParams({ freeRotationStep: v })}
             />
           </label>
+          <label>
+            Režim skládání
+            <select
+              aria-label="Režim skládání"
+              value={params.mode}
+              onChange={(e) => setParams({ mode: e.target.value as NestingMode })}
+            >
+              <option value="rect">obdélníkový (rychlý)</option>
+              <option value="shape">tvarový (skutečné tvary)</option>
+            </select>
+          </label>
+          {params.mode === 'shape' && (
+            <label>
+              Časový limit (s)
+              <NumberInput
+                label="Časový limit"
+                value={params.timeLimitMs / 1000}
+                min={1}
+                onCommit={(v) => v !== null && setParams({ timeLimitMs: Math.round(v * 1000) })}
+              />
+            </label>
+          )}
         </div>
+        {params.mode === 'shape' && (
+          <p className="muted hint">
+            Tvarový režim skládá díly podle skutečného obrysu a zkouší různá pořadí a natočení až do
+            časového limitu. Výpočet lze kdykoli zastavit a použít nejlepší dosavadní plán.
+          </p>
+        )}
       </section>
     </>
   );
