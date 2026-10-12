@@ -12,6 +12,7 @@ import {
   type Affine,
 } from '../geometry/affine.ts';
 import { approximateSegment } from '../geometry/contour.ts';
+import { EPS } from '../geometry/eps.ts';
 import type { Point } from '../geometry/types.ts';
 
 /**
@@ -88,14 +89,39 @@ const IGNORED = new Set([
   'XLINE',
   'RAY',
   'OLE2FRAME',
-  'REGION',
-  '3DSOLID',
-  'BODY',
-  'SURFACE',
-  'MESH',
   'SHAPE',
   'TRACE',
 ]);
+
+/** Typy, které dxf-parser umí bez vlastní obsluhy (VERTEX a SEQEND patří k POLYLINE). */
+const PARSER_TYPES = [
+  '3DFACE',
+  'ARC',
+  'ATTDEF',
+  'CIRCLE',
+  'DIMENSION',
+  'ELLIPSE',
+  'INSERT',
+  'LINE',
+  'LWPOLYLINE',
+  'MTEXT',
+  'POINT',
+  'POLYLINE',
+  'SOLID',
+  'SPLINE',
+  'TEXT',
+];
+const STRUCTURE = new Set(['BLOCK', 'ENDBLK', 'ENDSEC', 'VERTEX', 'SEQEND', 'EOF']);
+
+/** Nejvíc segmentů z jednoho výkresu – ochrana před zahlcením paměti. */
+export const MAX_SEGMENTS = 2_000_000;
+/** Nejvíc instancí jednoho pole vložení (INSERT se sloupci × řádky). */
+const MAX_ARRAY = 100_000;
+/** Rozsah chordální tolerance (mm) – menší by dal miliony bodů. */
+const MIN_CURVE_TOL = 1e-4;
+const MAX_CURVE_TOL = 10;
+/** Normála se bere jako ±Z, liší-li se x, y nejvýš o tento relativní podíl. */
+const NORMAL_EPS = 1e-6;
 
 // ---------------------------------------------------------------------------
 // Vlastní obsluha entit pro dxf-parser: CIRCLE a ELLIPSE bez ní ztratí směr
@@ -143,6 +169,7 @@ function commonProps(groups: readonly Group[]) {
   return {
     layer: typeof layer === 'string' ? layer : '0',
     inPaperSpace: groups.some((g) => g.code === 67 && g.value !== 0),
+    visible: !groups.some((g) => g.code === 60 && g.value === 1),
     extrusionZ: groups.find((g) => g.code === 230)?.value,
     extrusionX: groups.find((g) => g.code === 210)?.value,
     extrusionY: groups.find((g) => g.code === 220)?.value,
@@ -202,6 +229,8 @@ type Entity = Record<string, unknown> & { readonly type: string };
 interface Block {
   readonly entities?: Entity[];
   readonly position?: Point;
+  /** Příznaky bloku (4 = externí reference). */
+  readonly type?: number;
 }
 
 const isPoint = (p: unknown): p is Point =>
@@ -226,13 +255,14 @@ function extrusionOf(e: Entity): { x: number; y: number; z: number } {
 
 /**
  * OCS → WCS pro rovinné entity. Podporujeme normálu ±Z (algoritmus
- * libovolné osy dá pro (0, 0, −1) zrcadlení osy X); jiná normála = `null`.
+ * libovolné osy dá pro (0, 0, −1) zrcadlení osy X); jiná normála = `null`
+ * (průmět entity z natočené roviny do XY by nebyl skutečný tvar dílu).
  */
 function ocsMatrix(e: Entity): Affine | null {
   const n = extrusionOf(e);
   const len = Math.hypot(n.x, n.y, n.z);
   if (len === 0) return IDENTITY;
-  if (Math.abs(n.x / len) >= 1 / 64 || Math.abs(n.y / len) >= 1 / 64) return null;
+  if (Math.abs(n.x / len) > NORMAL_EPS || Math.abs(n.y / len) > NORMAL_EPS) return null;
   return n.z < 0 ? scaling(-1, 1) : IDENTITY;
 }
 
@@ -244,6 +274,9 @@ class Collector {
   readonly warnings: string[] = [];
   readonly ignored = new Map<string, number>();
   readonly unsupported = new Map<string, number>();
+  hidden = 0;
+  /** Překročen MAX_SEGMENTS – další segmenty se zahazují. */
+  overflow = false;
   private readonly warned = new Set<string>();
 
   constructor(private readonly tol: number) {}
@@ -275,9 +308,14 @@ class Collector {
       }
       return;
     }
+    if (this.overflow) return;
     const A = applyAffine(m, a);
     const B = applyAffine(m, b);
     if (Math.hypot(B.x - A.x, B.y - A.y) <= 1e-9) return;
+    if (this.segments.length >= MAX_SEGMENTS) {
+      this.overflow = true;
+      return;
+    }
     this.segments.push({ a: A, b: B, bulge: affineDeterminant(m) < 0 ? -bulge : bulge, layer });
   }
 
@@ -300,7 +338,8 @@ function distToSegment(p: Point, a: Point, b: Point): number {
 
 /**
  * Body křivky f(t) na [t0, t1]: `initial` stejných dílů, každý se dělí, dokud
- * se střed oblouku křivky odchyluje od tětivy o víc než `tol`. Vrací i oba konce.
+ * se body ve ¼, ½ a ¾ parametru odchylují od tětivy o víc než `tol`/2. Samotný
+ * střed nestačí – u esovité kubiky se inflexí vynuluje. Vrací i oba konce.
  */
 export function approximateCurve(
   f: (t: number) => Point,
@@ -313,7 +352,13 @@ export function approximateCurve(
   const refine = (ta: number, pa: Point, tb: number, pb: Point, depth: number) => {
     const tm = (ta + tb) / 2;
     const pm = f(tm);
-    if (depth < 20 && distToSegment(pm, pa, pb) > tol) {
+    const dev = Math.max(
+      distToSegment(pm, pa, pb),
+      distToSegment(f((ta + tm) / 2), pa, pb),
+      distToSegment(f((tm + tb) / 2), pa, pb),
+    );
+    // Polovina tolerance: kontrolní body nepokryjí celý úsek, rezerva drží skutečnou odchylku pod tol.
+    if (depth < 20 && dev > tol / 2) {
       refine(ta, pa, tm, pm, depth + 1);
       refine(tm, pm, tb, pb, depth + 1);
     } else {
@@ -372,6 +417,8 @@ export function nurbsPoint(
 interface Context {
   readonly blocks: Readonly<Record<string, Block>>;
   readonly out: Collector;
+  /** Vrstvy vypnuté nebo zamrzlé – jejich entity se nečtou. */
+  readonly hiddenLayers: ReadonlySet<string>;
 }
 
 function addArc(e: Entity, m: Affine, out: Collector, full: boolean) {
@@ -390,12 +437,12 @@ function addArc(e: Entity, m: Affine, out: Collector, full: boolean) {
     out.segment(p1, p0, 1, m, layer);
     return;
   }
-  // dxf-parser vrací úhly ARC v radiánech.
-  const start = finite(e.startAngle, 0);
-  let sweep = finite(e.endAngle, 0) - start;
-  while (sweep <= 0) sweep += 2 * Math.PI;
-  while (sweep > 2 * Math.PI) sweep -= 2 * Math.PI;
-  if (sweep >= 2 * Math.PI - 1e-12) {
+  // dxf-parser vrací úhly ARC v radiánech. Modulo (ne smyčka) i pro obří hodnoty.
+  const TAU = 2 * Math.PI;
+  const start = finite(e.startAngle, 0) % TAU;
+  const sweep = (((finite(e.endAngle, 0) - finite(e.startAngle, 0)) % TAU) + TAU) % TAU;
+  // Stejný počátek a konec = plný kruh; mezera do EPS také (jinak by oblouk zmizel).
+  if (sweep * radius <= 1e-9 || (TAU - sweep) * radius <= EPS) {
     addArc(e, m, out, true);
     return;
   }
@@ -440,10 +487,12 @@ function addEllipse(e: Entity, m: Affine, out: Collector) {
   // Vedlejší osa = poměr · (N × M); pro N = (0, 0, ±1) je to ±(−My, Mx).
   const nz = extrusionOf(e).z < 0 ? -1 : 1;
   const minor = { x: -nz * ratio * M.y, y: nz * ratio * M.x };
-  let t0 = finite(e.startParam, 0);
-  let t1 = finite(e.endParam, 2 * Math.PI);
-  while (t1 <= t0) t1 += 2 * Math.PI;
-  const full = t1 - t0 >= 2 * Math.PI - 1e-9;
+  const TAU = 2 * Math.PI;
+  const major = Math.hypot(M.x, M.y);
+  let t0 = finite(e.startParam, 0) % TAU;
+  const span = (((finite(e.endParam, TAU) - finite(e.startParam, 0)) % TAU) + TAU) % TAU;
+  let t1 = t0 + span;
+  const full = span * major <= 1e-9 || (TAU - span) * major <= EPS;
   if (full) {
     t0 = 0;
     t1 = 2 * Math.PI;
@@ -468,6 +517,9 @@ function addSpline(e: Entity, m: Affine, out: Collector) {
   if (n >= 2 && p >= 1 && knots.length === n + p + 1) {
     const w = e.weights as number[] | undefined;
     const weights = w && w.length === n && w.every((x) => x > 0) ? w : null;
+    if (!weights && (finite(e.flags, 0) & 4) !== 0) {
+      out.warnOnce('Racionální SPLINE nemá platné váhy – vyhodnocen jako neracionální.');
+    }
     const pts: Point[] = [];
     // Každý nenulový úsek uzlového vektoru zvlášť (spojitost se v uzlech může lámat).
     for (let k = p; k < n; k++) {
@@ -496,24 +548,42 @@ function addSpline(e: Entity, m: Affine, out: Collector) {
   out.warnOnce('SPLINE s neplatnými daty byl přeskočen.');
 }
 
-function walk(entities: readonly Entity[], m: Affine, ctx: Context, stack: readonly string[]) {
+/**
+ * Projde entity s transformací `m`. `inherited` = vrstva nadřazeného INSERT:
+ * entity bloku na vrstvě „0" ji přebírají (jako v AutoCADu).
+ */
+function walk(
+  entities: readonly Entity[],
+  m: Affine,
+  ctx: Context,
+  stack: readonly string[],
+  inherited: string | null,
+) {
   const { out } = ctx;
-  for (const e of entities) {
-    if (e.inPaperSpace === true) continue;
-    const type = String(e.type);
+  for (const raw of entities) {
+    if (out.overflow) return;
+    if (raw.inPaperSpace === true) continue;
+    const type = String(raw.type);
     if (IGNORED.has(type)) {
       out.count(out.ignored, type);
       continue;
     }
-    const layer = String(e.layer ?? '0');
-    // Souřadnice rovinných entit jsou v OCS (LINE, ELLIPSE a SPLINE ve WCS).
-    const planar = ['ARC', 'CIRCLE', 'LWPOLYLINE', 'POLYLINE', 'INSERT'].includes(type);
-    const ocs = planar ? ocsMatrix(e) : IDENTITY;
+    const own = String(raw.layer ?? '0');
+    const layer = own === '0' && inherited !== null ? inherited : own;
+    if (raw.visible === false || ctx.hiddenLayers.has(layer)) {
+      out.hidden++;
+      continue;
+    }
+    const e: Entity = layer === raw.layer ? raw : { ...raw, layer };
+    // Souřadnice rovinných entit jsou v OCS; ELLIPSE a SPLINE jsou ve WCS,
+    // ale i u nich musí normála mířit v ose Z, jinak průmět není tvar dílu.
+    const ocs = type === 'LINE' || e.is3dPolyline === true ? IDENTITY : ocsMatrix(e);
     if (!ocs) {
       out.warnOnce(`${type} leží v rovině mimo XY (natočená normála) – přeskočeno.`);
       continue;
     }
-    const mo = compose(m, ocs);
+    const planar = ['ARC', 'CIRCLE', 'LWPOLYLINE', 'POLYLINE', 'INSERT'].includes(type);
+    const mo = planar ? compose(m, ocs) : m;
     switch (type) {
       case 'LINE': {
         const v = e.vertices as Point[] | undefined;
@@ -528,8 +598,7 @@ function walk(entities: readonly Entity[], m: Affine, ctx: Context, stack: reado
         break;
       case 'LWPOLYLINE':
       case 'POLYLINE':
-        if (e.is3dPolyline === true) addPolyline(e, m, out);
-        else addPolyline(e, mo, out);
+        addPolyline(e, mo, out);
         break;
       case 'ELLIPSE':
         addEllipse(e, m, out);
@@ -538,7 +607,7 @@ function walk(entities: readonly Entity[], m: Affine, ctx: Context, stack: reado
         addSpline(e, m, out);
         break;
       case 'INSERT':
-        addInsert(e, mo, ctx, stack);
+        addInsert(e, mo, ctx, stack, layer);
         break;
       default:
         out.count(out.unsupported, type);
@@ -546,11 +615,15 @@ function walk(entities: readonly Entity[], m: Affine, ctx: Context, stack: reado
   }
 }
 
-function addInsert(e: Entity, m: Affine, ctx: Context, stack: readonly string[]) {
+function addInsert(e: Entity, m: Affine, ctx: Context, stack: readonly string[], layer: string) {
   const name = String(e.name ?? '');
   const block = ctx.blocks[name];
   if (!block) {
     ctx.out.warnOnce(`Blok „${name}" ve výkresu chybí – vložení přeskočeno.`);
+    return;
+  }
+  if ((finite(block.type, 0) & 4) !== 0) {
+    ctx.out.warnOnce(`Blok „${name}" je externí reference (XREF) – její obsah se nenačte.`);
     return;
   }
   if (stack.includes(name) || stack.length >= MAX_BLOCK_DEPTH) {
@@ -566,6 +639,12 @@ function addInsert(e: Entity, m: Affine, ctx: Context, stack: readonly string[])
   const rows = Math.max(1, Math.round(finite(e.rowCount, 1)));
   const dc = finite(e.columnSpacing, 0);
   const dr = finite(e.rowSpacing, 0);
+  if (cols * rows > MAX_ARRAY) {
+    ctx.out.warnOnce(
+      `Pole vložení bloku „${name}" má ${cols} × ${rows} kopií (víc než ${MAX_ARRAY}) – přeskočeno.`,
+    );
+    return;
+  }
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       // Pole: posun ve směru otočeného bloku, před měřítkem.
@@ -577,7 +656,7 @@ function addInsert(e: Entity, m: Affine, ctx: Context, stack: readonly string[])
         scaling(sx, sy),
         translation(-base.x, -base.y),
       );
-      walk(block.entities ?? [], t, ctx, [...stack, name]);
+      walk(block.entities ?? [], t, ctx, [...stack, name], layer);
     }
   }
 }
@@ -591,6 +670,27 @@ function decode(data: string | ArrayBuffer | Uint8Array): string {
   } catch {
     return new TextDecoder('windows-1250').decode(bytes);
   }
+}
+
+/** Typy entit, které parser přeskočí bez obsluhy (dxf-parser je nehlásí). */
+function unhandledTypes(text: string): Map<string, number> {
+  const known = new Set([...PARSER_TYPES, ...IGNORED, 'CIRCLE', 'ELLIPSE', 'SPLINE']);
+  const lines = text.split(/\r\n|\r|\n/);
+  const counts = new Map<string, number>();
+  let section = '';
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const code = lines[i]!.trim();
+    const value = lines[i + 1]!.trim();
+    if (code === '0' && value === 'SECTION') {
+      section = lines[i + 3]?.trim() ?? '';
+      i += 2;
+      continue;
+    }
+    if (code !== '0' || (section !== 'ENTITIES' && section !== 'BLOCKS')) continue;
+    if (STRUCTURE.has(value) || known.has(value)) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return counts;
 }
 
 const formatList = (map: ReadonlyMap<string, number>) =>
@@ -632,11 +732,48 @@ export function readDxf(
     warnings.push(`Nepodporované jednotky výkresu ($INSUNITS = ${code}) – předpokládám milimetry.`);
   }
 
-  const out = new Collector(opts.curveTolerance ?? DEFAULT_CURVE_TOLERANCE);
+  const tol = opts.curveTolerance;
+  const out = new Collector(
+    typeof tol === 'number' && Number.isFinite(tol)
+      ? Math.min(MAX_CURVE_TOL, Math.max(MIN_CURVE_TOL, tol))
+      : DEFAULT_CURVE_TOLERANCE,
+  );
   const blocks = (dxf.blocks ?? {}) as unknown as Record<string, Block>;
-  walk((dxf.entities ?? []) as unknown as Entity[], scaling(units.toMm), { blocks, out }, []);
+  const layers = (dxf.tables?.layer?.layers ?? {}) as Record<
+    string,
+    { frozen?: boolean; visible?: boolean }
+  >;
+  const hiddenLayers = new Set(
+    Object.entries(layers)
+      .filter(([, l]) => l.frozen === true || l.visible === false)
+      .map(([name]) => name),
+  );
+  walk(
+    (dxf.entities ?? []) as unknown as Entity[],
+    scaling(units.toMm),
+    { blocks, out, hiddenLayers },
+    [],
+    null,
+  );
 
+  if (out.overflow) {
+    return fail(
+      units,
+      `Výkres je příliš rozsáhlý (víc než ${MAX_SEGMENTS.toLocaleString('cs-CZ')} segmentů) – import přerušen.`,
+    );
+  }
   warnings.push(...out.warnings);
+  if (out.hidden > 0) {
+    warnings.push(
+      `Přeskočeny skryté entity (neviditelné nebo na vypnuté či zamrzlé vrstvě): ${out.hidden}.`,
+    );
+  }
+  const unknown = unhandledTypes(text);
+  if (unknown.size > 0) {
+    warnings.push(
+      `Nepodporované entity přeskočeny – rozložte je v CADu na čáry a oblouky: ${formatList(unknown)}.`,
+    );
+  }
   if (out.ignored.size > 0)
     warnings.push(`Přeskočeny entity bez geometrie dílu: ${formatList(out.ignored)}.`);
   if (out.unsupported.size > 0)

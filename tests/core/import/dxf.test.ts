@@ -5,6 +5,8 @@ import { EPS } from '../../../src/core/geometry/eps.ts';
 import type { Part, Sheet } from '../../../src/core/model.ts';
 import { placedContours } from '../../../src/core/placed.ts';
 import type { Point } from '../../../src/core/geometry/types.ts';
+import { pointSegmentDistance } from '../../../src/core/geometry/polygon.ts';
+import { arc, circle, dxf, ent, line, rectPoly, type G } from './dxf-builder.ts';
 import {
   approximateCurve,
   nurbsPoint,
@@ -12,51 +14,6 @@ import {
   type DxfSegment,
 } from '../../../src/core/import/dxf.ts';
 
-type G = readonly [number, string | number];
-
-/** Entita jako dvojice kód–hodnota. */
-const ent = (type: string, ...groups: G[]): G[] => [[0, type], [8, 'DIL'], ...groups];
-
-/** Minimální DXF: hlavička s jednotkami, bloky a entity. */
-function dxf(opts: {
-  insunits?: number | null;
-  blocks?: { name: string; base?: Point; entities: G[][] }[];
-  entities: G[][];
-}): string {
-  const g: G[] = [
-    [0, 'SECTION'],
-    [2, 'HEADER'],
-    [9, '$ACADVER'],
-    [1, 'AC1015'],
-  ];
-  if (opts.insunits !== null) g.push([9, '$INSUNITS'], [70, opts.insunits ?? 4]);
-  g.push([0, 'ENDSEC'], [0, 'SECTION'], [2, 'BLOCKS']);
-  for (const b of opts.blocks ?? []) {
-    g.push(
-      [0, 'BLOCK'],
-      [8, '0'],
-      [2, b.name],
-      [70, 0],
-      [10, b.base?.x ?? 0],
-      [20, b.base?.y ?? 0],
-      [30, 0],
-      [3, b.name],
-    );
-    for (const e of b.entities) g.push(...e);
-    g.push([0, 'ENDBLK'], [8, '0']);
-  }
-  g.push([0, 'ENDSEC'], [0, 'SECTION'], [2, 'ENTITIES']);
-  for (const e of opts.entities) g.push(...e);
-  g.push([0, 'ENDSEC'], [0, 'EOF']);
-  return g.map(([c, v]) => `${c}\n${v}`).join('\n') + '\n';
-}
-
-const line = (x1: number, y1: number, x2: number, y2: number) =>
-  ent('LINE', [10, x1], [20, y1], [30, 0], [11, x2], [21, y2], [31, 0]);
-const arc = (cx: number, cy: number, r: number, a0: number, a1: number, ...extra: G[]) =>
-  ent('ARC', [10, cx], [20, cy], [30, 0], [40, r], [50, a0], [51, a1], ...extra);
-const circle = (cx: number, cy: number, r: number, ...extra: G[]) =>
-  ent('CIRCLE', [10, cx], [20, cy], [30, 0], [40, r], ...extra);
 const NEG_Z: G[] = [
   [210, 0],
   [220, 0],
@@ -549,4 +506,228 @@ describe('vlastní DXF writer → readDxf', () => {
       expect(hole.radius).toBeCloseTo(10, 6);
     });
   }
+});
+
+describe('revize 4.1: okrajové případy', () => {
+  /** Skutečná odchylka křivky od lomené čáry (husté vzorkování parametru). */
+  function maxDeviation(f: (t: number) => Point, pts: readonly Point[]) {
+    let worst = 0;
+    for (let i = 0; i <= 4000; i++) {
+      const p = f(i / 4000);
+      let d = Infinity;
+      for (let k = 1; k < pts.length; k++)
+        d = Math.min(d, pointSegmentDistance(p, pts[k - 1]!, pts[k]!));
+      worst = Math.max(worst, d);
+    }
+    return worst;
+  }
+
+  it('esovitý splajn (inflexe uprostřed úseku) i náhodné kubiky drží odchylku v toleranci', () => {
+    const knots = [0, 0, 0, 0, 1, 1, 1, 1];
+    const S = [
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 200, y: 0 },
+      { x: 300, y: 1300 },
+    ];
+    const f = (t: number) => nurbsPoint(3, knots, S, null, t);
+    expect(maxDeviation(f, approximateCurve(f, 0, 1, 0.01, 8))).toBeLessThanOrEqual(0.01);
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 300;
+    for (let n = 0; n < 60; n++) {
+      const c = [0, 1, 2, 3].map(() => ({ x: rnd(), y: rnd() }));
+      const g = (t: number) => nurbsPoint(3, knots, c, null, t);
+      expect(maxDeviation(g, approximateCurve(g, 0, 1, 0.01, 4))).toBeLessThanOrEqual(0.01);
+    }
+  });
+
+  it('pole s otočením a měřítkem: posun pole se otáčí s blokem a nenásobí se měřítkem', () => {
+    const ins = ent(
+      'INSERT',
+      [2, 'L'],
+      [10, 0],
+      [20, 0],
+      [30, 0],
+      [41, 2],
+      [42, 2],
+      [50, 90],
+      [70, 2],
+      [44, 100],
+    );
+    const s = read(
+      dxf({ blocks: [{ name: 'L', entities: [line(0, 0, 1, 0)] }], entities: [ins] }),
+    ).segments;
+    expect(near(s[1]!.a, { x: 0, y: 100 })).toBe(true);
+    expect(near(s[1]!.b, { x: 0, y: 102 })).toBe(true);
+  });
+
+  it('INSERT s normálou −Z a dvojité zrcadlení (oblouk −Z v zrcadleném bloku)', () => {
+    const blk = { name: 'B', entities: [arc(10, 0, 5, 0, 90, ...NEG_Z)] };
+    // Oblouk v bloku: OCS střed (10, 0) → WCS (−10, 0), běží CW.
+    const negIns = ent(
+      'INSERT',
+      [2, 'B'],
+      [10, 100],
+      [20, 0],
+      [30, 0],
+      [210, 0],
+      [220, 0],
+      [230, -1],
+    );
+    const [a] = read(dxf({ blocks: [blk], entities: [negIns] })).segments;
+    // Vložení −Z: OCS bod (100, 0) → WCS (−100, 0) a znovu zrcadlí X → střed (−100 + 10, 0).
+    expect(near(bulgeToArc(a!.a, a!.b, a!.bulge)!.center, { x: -90, y: 0 })).toBe(true);
+    expect(a!.bulge).toBeGreaterThan(0);
+    const mirror = ent('INSERT', [2, 'B'], [10, 0], [20, 0], [30, 0], [41, -1]);
+    const [m] = read(dxf({ blocks: [blk], entities: [mirror] })).segments;
+    expect(near(bulgeToArc(m!.a, m!.b, m!.bulge)!.center, { x: 10, y: 0 })).toBe(true);
+    expect(m!.bulge).toBeGreaterThan(0);
+  });
+
+  it('ELLIPSE v nestejnoměrně škálovaném vložení leží na protažené elipse', () => {
+    const el = ent(
+      'ELLIPSE',
+      [10, 0],
+      [20, 0],
+      [30, 0],
+      [11, 10],
+      [21, 0],
+      [31, 0],
+      [40, 1],
+      [41, 0],
+      [42, 2 * Math.PI],
+    );
+    const ins = ent('INSERT', [2, 'E'], [10, 0], [20, 0], [30, 0], [41, 3], [42, 1]);
+    const s = read(dxf({ blocks: [{ name: 'E', entities: [el] }], entities: [ins] })).segments;
+    expect(s.length).toBeGreaterThan(16);
+    for (const x of s)
+      expect(Math.abs((x.a.x / 30) ** 2 + (x.a.y / 10) ** 2 - 1)).toBeLessThan(1e-9);
+  });
+
+  it('úhly ARC nad 360° a obří hodnoty se normalizují (bez zaseknutí)', () => {
+    const [s] = read(dxf({ entities: [arc(0, 0, 10, 0, 450)] })).segments;
+    expect(bulgeToArc(s!.a, s!.b, s!.bulge)!.sweep).toBeCloseTo(90, 9);
+    const t = performance.now();
+    const huge = ent(
+      'ELLIPSE',
+      [10, 0],
+      [20, 0],
+      [30, 0],
+      [11, 10],
+      [21, 0],
+      [31, 0],
+      [40, 0.5],
+      [41, 1e17],
+      [42, 0],
+    );
+    readDxf(dxf({ entities: [arc(0, 0, 10, 0, -1e18), huge] }));
+    expect(performance.now() - t).toBeLessThan(2000);
+  });
+
+  it('téměř plný oblouk je kruh, ne prázdno', () => {
+    const s = read(dxf({ entities: [arc(0, 0, 100, 0, 359.9999999999)] })).segments;
+    expect(s).toHaveLength(2);
+    expect(s.every((x) => x.bulge === 1)).toBe(true);
+  });
+
+  it('neplatná tolerance křivek se nahradí rozumnou (bez zaseknutí)', () => {
+    const el = ent(
+      'ELLIPSE',
+      [10, 0],
+      [20, 0],
+      [30, 0],
+      [11, 100],
+      [21, 0],
+      [31, 0],
+      [40, 0.5],
+      [41, 0],
+      [42, 2 * Math.PI],
+    );
+    for (const curveTolerance of [0, -1, Number.NaN]) {
+      const t = performance.now();
+      const r = readDxf(dxf({ entities: [el] }), { curveTolerance });
+      expect(r.segments.length).toBeGreaterThan(10);
+      expect(performance.now() - t).toBeLessThan(3000);
+    }
+  });
+
+  it('neviditelné entity a vypnuté/zamrzlé vrstvy se přeskočí; vrstva 0 v bloku dědí vrstvu vložení', () => {
+    const r = readDxf(
+      dxf({
+        layers: [{ name: 'POMOCNA', flags: 1 }, { name: 'VYPNUTA', color: -7 }, { name: 'DIL' }],
+        blocks: [{ name: 'B', entities: [line(0, 0, 1, 0, [8, '0'])] }],
+        entities: [
+          line(0, 0, 5, 0),
+          [...line(0, 0, 9, 0), [60, 1]],
+          line(0, 0, 9, 0, [8, 'POMOCNA']),
+          line(0, 0, 9, 0, [8, 'VYPNUTA']),
+          ent('INSERT', [8, 'VYPNUTA'], [2, 'B'], [10, 0], [20, 0], [30, 0]),
+          ent('INSERT', [8, 'DIL'], [2, 'B'], [10, 0], [20, 5], [30, 0]),
+        ],
+      }),
+    );
+    expect(r.segments.map((s) => [s.layer, s.b.x])).toEqual([
+      ['DIL', 5],
+      ['DIL', 1],
+    ]);
+    expect(r.warnings.join()).toMatch(/Přeskočeny skryté entity .*: 4\./);
+  });
+
+  it('entity bez obsluhy parseru (MLINE, REGION) se nahlásí s radou rozložit', () => {
+    const r = readDxf(
+      dxf({
+        entities: [
+          ent('MLINE', [10, 0], [20, 0], [30, 0]),
+          ent('REGION', [70, 1]),
+          line(0, 0, 1, 0),
+        ],
+      }),
+    );
+    expect(r.segments).toHaveLength(1);
+    expect(r.warnings.join()).toMatch(
+      /rozložte je v CADu na čáry a oblouky: MLINE \(1\), REGION \(1\)/,
+    );
+  });
+
+  it('XREF a obří pole vložení se přeskočí s varováním', () => {
+    const r = readDxf(
+      dxf({
+        blocks: [
+          { name: 'X', type: 4, entities: [] },
+          { name: 'L', entities: [line(0, 0, 1, 0)] },
+        ],
+        entities: [
+          ent('INSERT', [2, 'X'], [10, 0], [20, 0], [30, 0]),
+          ent('INSERT', [2, 'L'], [10, 0], [20, 0], [30, 0], [70, 3000], [71, 3000]),
+          line(0, 0, 1, 0),
+        ],
+      }),
+    );
+    expect(r.segments).toHaveLength(1);
+    expect(r.warnings.join('\n')).toMatch(/externí reference/);
+    expect(r.warnings.join('\n')).toMatch(/3000 × 3000 kopií/);
+  });
+
+  it('ELLIPSE a kružnice v natočené rovině se přeskočí', () => {
+    const el = ent(
+      'ELLIPSE',
+      [10, 0],
+      [20, 0],
+      [30, 0],
+      [11, 10],
+      [21, 0],
+      [31, 0],
+      [40, 0.5],
+      [41, 0],
+      [42, 1],
+      [210, 1],
+      [220, 0],
+      [230, 0],
+    );
+    const tilted = circle(0, 0, 5, [210, 0.015], [220, 0], [230, 0.9999]);
+    const r = readDxf(dxf({ entities: [el, tilted, rectPoly(0, 0, 1, 1)] }));
+    expect(r.segments).toHaveLength(4);
+    expect(r.warnings.join('\n')).toMatch(/ELLIPSE leží v rovině mimo XY/);
+    expect(r.warnings.join('\n')).toMatch(/CIRCLE leží v rovině mimo XY/);
+  });
 });

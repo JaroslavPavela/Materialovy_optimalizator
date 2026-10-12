@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 4.3
-Poslední commit: feat: sestavení kontur z DXF (krok 4.2)
+Poslední commit: fix: opravy z revize čtení DXF (krok 4.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -280,3 +280,12 @@ BLOKOVÁNO: ne
   neuzavřená kontura – oddělení podle vrstev řeší až UI. Nad rámec:
   `pointInRing`, `pointRingDistance`, `pointSegmentDistance` (polygon.ts)
   a `contourToRing` (contour.ts).
+- 4.1 (revize): Aproximace křivek kontroluje body ve ¼, ½ a ¾ úseku proti
+  polovině tolerance (samotný střed u esovité kubiky podcenil odchylku 92×).
+  Přeskakují se neviditelné entity a vypnuté/zamrzlé vrstvy; entity bloku
+  na vrstvě 0 dědí vrstvu vložení. Entity, které dxf-parser neumí (MLINE,
+  REGION, 3DSOLID…), se zjistí předběžným průchodem textu a nahlásí s radou
+  rozložit je v CADu. Ochrana proti zaseknutí: úhly přes modulo, tolerance
+  omezená na 0,0001–10 mm, limit 2 mil. segmentů a 100 000 kopií pole.
+  Normála se bere jako ±Z jen do odchylky 1e-6 (i u ELLIPSE a SPLINE).
+  Téměř plný oblouk (mezera ≤ EPS) je kruh. XREF se nahlásí.
