@@ -98,7 +98,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 4.3 Díly z DXF: režim „1 soubor = 1 díl" i „více dílů v souboru"
       (každá vnější kontura = díl); počet zadán v tabulce dílů; nahrání
       více souborů najednou.
-- [ ] 4.4 Fixtures DXF: generované vlastním writerem + ručně psané okrajové
+- [x] 4.4 Fixtures DXF: generované vlastním writerem + ručně psané okrajové
       případy (nespojené čáry, duplicity, palce, blok, díl s otvory, spline).
 - [ ] 4.5 Nesting přes obalový obdélník (MaxRects), v náhledu a exportu
       skutečný tvar dílu včetně otvorů a oblouků.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 4.4
-Poslední commit: feat: díly z DXF a nahrání více souborů (krok 4.3)
+Aktuální krok: 4.5
+Poslední commit: test: vzorky DXF a testy importu (krok 4.4)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -308,3 +308,11 @@ BLOKOVÁNO: ne
   přidá). Rozměry dílů z DXF v tabulce nejdou upravit (plynou z obrysu).
   Hlášení importu jsou po souborech, CSV s číslem řádku. Nad rámec:
   volitelný filtr vrstev `layer` v jádře (UI pro výběr vrstev zatím ne).
+- 4.4: Vzorky generuje `tests/fixtures/generate-dxf.ts` (spouští se přímo
+  `node`, Node 22 odstraní typy; proto v src/core nejsou parametrové
+  vlastnosti konstruktoru). Dva vzorky zapisuje vlastní DXF writer (plán
+  s DXF R12, POLYLINE i LINE/ARC), 15 je ručně skládaných okrajových případů.
+  Vzorek `zrcadleny-oblouk.dxf` má chybou při tvorbě špatně zrcadlené úhly
+  oblouků – vzorky se nesmí měnit, zůstal jako případ neuzavřených kontur
+  a správný rozvin s normálou −Z je `zrcadleny-rozvin.dxf`. Test hlídá,
+  že každý vzorek ve složce má očekávání.

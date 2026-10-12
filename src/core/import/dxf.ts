@@ -279,7 +279,11 @@ class Collector {
   overflow = false;
   private readonly warned = new Set<string>();
 
-  constructor(private readonly tol: number) {}
+  private readonly tol: number;
+
+  constructor(tol: number) {
+    this.tol = tol;
+  }
 
   warnOnce(message: string) {
     if (this.warned.has(message)) return;
