@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 2.5
-Poslední commit: feat: výpočet ve Web Workeru s průběhem a zastavením (krok 2.4)
+Poslední commit: fix: opravy z revize MaxRects (krok 2.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -189,9 +189,10 @@ BLOKOVÁNO: ne
 - 1.4 (revize): Oblouk se sagitou ≤ EPS/10 se bere jako úsečka (šum v bulge
   z CAD dával střed ~10¹² mm daleko a chybu bbox 0,09 mm). Samoprůniky obrysů
   a zakázaných zón validace modelu nekontroluje – řeší import DXF v kroku 4.2.
-- 2.2: Pořadí kritérií pro výběr nejlepšího výsledku: (1) méně neumístěných,
-  (2) menší plocha použitých tabulí, (3) méně tabulí, (4) větší zbytek na
-  poslední tabuli. Skill uvádí počet tabulí před plochou; u více formátů je
+- 2.2: Pořadí kritérií pro výběr nejlepšího výsledku: (1) menší plocha
+  neumístěných kusů, (2) méně neumístěných, (3) menší plocha použitých tabulí,
+  (4) méně tabulí, (5) větší zbytek na poslední tabuli (podle revize: plocha
+  neumístěných před počtem). Skill uvádí počet tabulí před plochou; u více formátů je
   plocha (spotřeba materiálu) výstižnější, u jednoho formátu je to totéž.
 - 2.2: V obdélníkovém režimu se zakázaná zóna bere jako její obalový obdélník
   (konzervativně); přesný tvar zóny využije tvarový režim (fáze 5).
@@ -207,3 +208,5 @@ BLOKOVÁNO: ne
   (vyžaduje hlavičky COOP/COEP) se nepoužívají.
 - 2.4: Režim `shape` zatím počítá přes obalové obdélníky – tvarový nesting
   přijde ve fázi 5. Vitest nově spouští `tests/**/*.test.ts` (i tests/worker).
+- 2.2 (revize): Formáty se skladem 0 se při určení důvodu neumístění
+  nepočítají; vejde-li se díl jen na takový formát, důvod je „došly tabule".

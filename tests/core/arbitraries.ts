@@ -173,3 +173,135 @@ export const arbSpacing: fc.Arbitrary<number> = fc.oneof(
   fc.constant(0),
   fc.double({ min: 0, max: 10, noNaN: true }),
 );
+
+const MATERIALS = ['DTD', 'MDF', undefined] as const;
+
+/** Zóna v okrajové variantě: mimo tabuli, přes celou tabuli, nebo trojúhelník u rohu. */
+const arbEdgeZone = (w: number, h: number): fc.Arbitrary<ForbiddenZone> =>
+  fc
+    .constantFrom('outside', 'whole', 'triangle')
+    .map((kind): Ring => {
+      switch (kind) {
+        case 'outside':
+          return [
+            { x: w + 50, y: -100 },
+            { x: w + 300, y: -100 },
+            { x: w + 300, y: h / 2 },
+            { x: w + 50, y: h / 2 },
+          ];
+        case 'whole':
+          return [
+            { x: -10, y: -10 },
+            { x: w + 10, y: -10 },
+            { x: w + 10, y: h + 10 },
+            { x: -10, y: h + 10 },
+          ];
+        default:
+          return [
+            { x: 0, y: 0 },
+            { x: w / 4, y: 0 },
+            { x: 0, y: h / 4 },
+          ];
+      }
+    })
+    .map((polygon) => ({ id: 'edge', polygon }));
+
+/**
+ * Okrajové vstupy nestingu: materiály a tloušťky, formát se skladem 0,
+ * zbytek, zóny mimo tabuli / přes celou tabuli / nepravoúhlé a díly přesně
+ * na míru užitné plochy (± zlomek EPS).
+ */
+export const arbEdgeNestingInput = (
+  spacingArb: fc.Arbitrary<number>,
+): fc.Arbitrary<{ parts: Part[]; sheets: Sheet[]; spacing: number }> =>
+  fc
+    .record({
+      spacing: spacingArb,
+      w: fc.integer({ min: 300, max: 2500 }),
+      h: fc.integer({ min: 300, max: 1500 }),
+      margin: fc.constantFrom(0, 10, 2.5),
+      material: fc.constantFrom(...MATERIALS),
+      thickness: fc.constantFrom(18, undefined),
+      stock: fc.constantFrom<number | null>(null, 1, 2),
+      zone: fc.option(fc.constant(true), { nil: undefined }),
+      emptyFormat: fc.boolean(),
+      remnant: fc.boolean(),
+    })
+    .chain((c) => {
+      const zones = c.zone ? arbEdgeZone(c.w, c.h).map((z) => [z]) : fc.constant([]);
+      const usableW = c.w - 2 * c.margin + c.spacing;
+      const usableH = c.h - 2 * c.margin + c.spacing;
+      const exact = fc
+        .record({
+          kx: fc.integer({ min: 1, max: 4 }),
+          ky: fc.integer({ min: 1, max: 4 }),
+          jitter: fc.constantFrom(-0.4, 0, 0.4, 1.2),
+          quantity: fc.integer({ min: 1, max: 20 }),
+          rotation: fc.constantFrom<RotationMode>('free', 'ortho', 'locked'),
+          material: fc.constantFrom(...MATERIALS),
+        })
+        .map(({ kx, ky, jitter, quantity, rotation, material }) => ({
+          width: usableW / kx - c.spacing + jitter * 1e-3,
+          height: usableH / ky - c.spacing + jitter * 1e-3,
+          quantity,
+          rotation,
+          material,
+        }))
+        .filter((p) => p.width > 0.01 && p.height > 0.01);
+      return fc
+        .record({
+          zones,
+          parts: fc.array(exact, { minLength: 1, maxLength: 4 }),
+        })
+        .map(({ zones: forbiddenZones, parts }) => {
+          const sheets: Sheet[] = [
+            {
+              id: 'hlavni',
+              name: 'hlavní',
+              width: c.w,
+              height: c.h,
+              margin: c.margin,
+              stock: c.stock,
+              forbiddenZones,
+              ...(c.material !== undefined ? { material: c.material } : {}),
+              ...(c.thickness !== undefined ? { thickness: c.thickness } : {}),
+            },
+          ];
+          if (c.emptyFormat) {
+            sheets.push({
+              id: 'prazdny',
+              name: 'prázdný sklad',
+              width: 4000,
+              height: 2000,
+              margin: 0,
+              stock: 0,
+              forbiddenZones: [],
+            });
+          }
+          if (c.remnant) {
+            sheets.push({
+              id: 'zbytek',
+              name: 'zbytek',
+              width: Math.round(c.w / 2),
+              height: Math.round(c.h / 2),
+              margin: 0,
+              stock: 1,
+              remnant: true,
+              forbiddenZones: [],
+            });
+          }
+          return {
+            spacing: c.spacing,
+            sheets,
+            parts: parts.map((p, i): Part => ({
+              id: `e${i}`,
+              name: `Okraj ${i}`,
+              width: p.width,
+              height: p.height,
+              quantity: p.quantity,
+              rotation: p.rotation,
+              ...(p.material !== undefined ? { material: p.material } : {}),
+            })),
+          };
+        });
+    });

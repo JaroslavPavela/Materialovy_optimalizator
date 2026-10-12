@@ -1,5 +1,6 @@
 import { EPS } from '../geometry/eps.ts';
 import { ringBBox } from '../geometry/polygon.ts';
+import { translationForCorner } from '../geometry/transform.ts';
 import type { Rect } from '../geometry/types.ts';
 import {
   rectRotations,
@@ -216,19 +217,14 @@ const canRotate = (p: Part) => rectRotations(p.rotation).includes(90);
 
 /** Placement z levého dolního rohu nafouknutého obdélníku. */
 function toPlacement(item: Item, c: Candidate, spacing: number): Placement {
-  const half = spacing / 2;
-  const cornerX = c.x + half;
-  const cornerY = c.y + half;
-  // Otočení o 90° CCW kolem počátku: [0, w] × [0, h] → [−h, 0] × [0, w].
-  return c.rotated
-    ? {
-        partId: item.part.id,
-        instance: item.instance,
-        x: cornerX + item.part.height,
-        y: cornerY,
-        rotation: 90,
-      }
-    : { partId: item.part.id, instance: item.instance, x: cornerX, y: cornerY, rotation: 0 };
+  const { width, height } = item.part;
+  const rotation = c.rotated ? 90 : 0;
+  // Obalový obdélník dílu otočeného kolem lokálního počátku (90° CCW: [−h, 0] × [0, w]).
+  const rotatedBBox = c.rotated
+    ? { x: -height, y: 0, width: height, height: width }
+    : { x: 0, y: 0, width, height };
+  const t = translationForCorner(rotatedBBox, { x: c.x + spacing / 2, y: c.y + spacing / 2 });
+  return { partId: item.part.id, instance: item.instance, x: t.x, y: t.y, rotation };
 }
 
 interface FilledSheet {
@@ -268,14 +264,20 @@ function fillSheet(
   return { placements, placedArea, remaining, bin };
 }
 
-/** Proč se kus nevejde na žádnou prázdnou vhodnou tabuli; `null` = vejde se. */
+/**
+ * Proč se kus nevejde na žádnou prázdnou vhodnou tabuli; `null` = vejde se.
+ * Materiál se posuzuje vůči všem formátům, rozměry jen vůči formátům se skladem.
+ */
 function unplaceableReason(
   part: Part,
   sheets: readonly Sheet[],
   spacing: number,
 ): UnplacedReason | null {
-  const matching = sheets.filter((s) => sheetMatchesPart(part, s));
-  if (matching.length === 0) return 'no-matching-sheet';
+  const matchingAny = sheets.filter((s) => sheetMatchesPart(part, s));
+  if (matchingAny.length === 0) return 'no-matching-sheet';
+  // Formáty se skladem 0 se nepoužijí – když jiné vhodné nejsou, „došly tabule".
+  const matching = matchingAny.filter((s) => s.stock !== 0);
+  if (matching.length === 0) return 'out-of-sheets';
   const w = part.width + spacing;
   const h = part.height + spacing;
   const rotate = canRotate(part);
@@ -362,6 +364,12 @@ const sheetArea = (input: NestingInput, r: MaxRectsResult) =>
     return sum + s.width * s.height;
   }, 0);
 
+const unplacedArea = (input: NestingInput, r: MaxRectsResult) =>
+  r.unplaced.reduce((sum, u) => {
+    const p = input.parts.find((x) => x.id === u.partId)!;
+    return sum + p.width * p.height;
+  }, 0);
+
 const lastRemnantArea = (r: MaxRectsResult) => {
   const last = r.layouts[r.layouts.length - 1];
   return last ? Math.max(0, ...last.freeRects.map((f) => f.width * f.height)) : 0;
@@ -369,14 +377,18 @@ const lastRemnantArea = (r: MaxRectsResult) => {
 
 /**
  * Porovnání dvou výsledků: záporné číslo = `a` je lepší.
- * (1) méně neumístěných kusů, (2) menší plocha použitých tabulí,
- * (3) méně tabulí, (4) větší zbytek na poslední tabuli.
+ * (1) menší plocha neumístěných kusů, (2) méně neumístěných kusů,
+ * (3) menší plocha použitých tabulí, (4) méně tabulí,
+ * (5) větší zbytek na poslední tabuli.
  */
 export function compareRectResults(
   input: NestingInput,
   a: MaxRectsResult,
   b: MaxRectsResult,
 ): number {
+  const missA = unplacedArea(input, a);
+  const missB = unplacedArea(input, b);
+  if (Math.abs(missA - missB) > EPS) return missA - missB;
   if (a.unplaced.length !== b.unplaced.length) return a.unplaced.length - b.unplaced.length;
   const areaA = sheetArea(input, a);
   const areaB = sheetArea(input, b);

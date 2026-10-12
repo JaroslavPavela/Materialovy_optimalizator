@@ -17,8 +17,8 @@ import {
   type Part,
   type Sheet,
 } from '../../../src/core/model.ts';
-import { arbRectParts, arbSheet, arbSpacing } from '../arbitraries.ts';
-import { placedRect, rectInvariantViolations } from './invariants.ts';
+import { arbEdgeNestingInput, arbRectParts, arbSheet, arbSpacing } from '../arbitraries.ts';
+import { placedRect, reasonViolations, rectInvariantViolations } from './invariants.ts';
 
 const sheet = (over: Partial<Sheet> = {}): Sheet => ({
   id: 's',
@@ -110,46 +110,85 @@ describe('MaxRectsBin', () => {
     });
   });
 
-  it('nemá obsažené ani duplicitní volné obdélníky (prune)', () => {
+  it('volné obdélníky: bez obsažených, mimo překážky, úplné a maximální (i desetinné souřadnice)', () => {
+    const coord = fc.oneof(
+      fc.integer({ min: 0, max: 90 }),
+      fc.double({ min: 0, max: 90, noNaN: true }),
+    );
+    const size = fc.oneof(
+      fc.integer({ min: 1, max: 40 }),
+      fc.double({ min: 0.5, max: 40, noNaN: true }),
+    );
     fc.assert(
       fc.property(
-        fc.array(
-          fc.record({
-            x: fc.integer({ min: 0, max: 90 }),
-            y: fc.integer({ min: 0, max: 90 }),
-            w: fc.integer({ min: 1, max: 40 }),
-            h: fc.integer({ min: 1, max: 40 }),
-          }),
-          { maxLength: 15 },
-        ),
-        (obstacles) => {
-          const bin = new MaxRectsBin(
-            { x: 0, y: 0, width: 100, height: 100 },
-            obstacles.map((o) => ({ x: o.x, y: o.y, width: o.w, height: o.h })),
-          );
-          const f = bin.freeRects;
+        fc.array(fc.record({ x: coord, y: coord, w: size, h: size }), { maxLength: 12 }),
+        (obs) => {
+          const area = { x: 0, y: 0, width: 100, height: 100 };
+          const obstacles = obs.map((o) => ({ x: o.x, y: o.y, width: o.w, height: o.h }));
+          const f = new MaxRectsBin(area, obstacles).freeRects;
+          const tol = 1e-3;
+          const inside = (
+            p: { x: number; y: number },
+            r: { x: number; y: number; width: number; height: number },
+            t: number,
+          ) =>
+            p.x > r.x + t && p.x < r.x + r.width - t && p.y > r.y + t && p.y < r.y + r.height - t;
           for (let i = 0; i < f.length; i++) {
+            const a = f[i]!;
             for (let j = 0; j < f.length; j++) {
               if (i === j) continue;
-              const a = f[i]!;
               const b = f[j]!;
               const contained =
-                a.x >= b.x &&
-                a.y >= b.y &&
-                a.x + a.width <= b.x + b.width &&
-                a.y + a.height <= b.y + b.height;
+                a.x >= b.x - tol &&
+                a.y >= b.y - tol &&
+                a.x + a.width <= b.x + b.width + tol &&
+                a.y + a.height <= b.y + b.height + tol;
               expect(contained).toBe(false);
             }
-            // volný obdélník nezasahuje do překážky
             for (const o of obstacles) {
-              const a = f[i]!;
               const overlap =
-                a.x < o.x + o.w && o.x < a.x + a.width && a.y < o.y + o.h && o.y < a.y + a.height;
+                a.x < o.x + o.width - tol &&
+                o.x < a.x + a.width - tol &&
+                a.y < o.y + o.height - tol &&
+                o.y < a.y + a.height - tol;
               expect(overlap).toBe(false);
+            }
+            // maximalita: pás šířky `grow` těsně za každou hranou buď vyčnívá
+            // z plochy, nebo se překrývá s některou překážkou
+            const grow = 0.01;
+            const strips = [
+              { x: a.x - grow, y: a.y, width: grow, height: a.height },
+              { x: a.x + a.width, y: a.y, width: grow, height: a.height },
+              { x: a.x, y: a.y - grow, width: a.width, height: grow },
+              { x: a.x, y: a.y + a.height, width: a.width, height: grow },
+            ];
+            for (const st of strips) {
+              const outside =
+                st.x < -tol ||
+                st.y < -tol ||
+                st.x + st.width > 100 + tol ||
+                st.y + st.height > 100 + tol;
+              const hits = obstacles.some(
+                (o) =>
+                  Math.min(st.x + st.width, o.x + o.width) - Math.max(st.x, o.x) > 1e-9 &&
+                  Math.min(st.y + st.height, o.y + o.height) - Math.max(st.y, o.y) > 1e-9,
+              );
+              expect(outside || hits).toBe(true);
+            }
+          }
+          // úplnost: každý volný bod (mimo překážky) leží v některém volném obdélníku
+          for (let gx = 0.5; gx < 100; gx += 3) {
+            for (let gy = 0.5; gy < 100; gy += 3) {
+              const p = { x: gx, y: gy };
+              if (obstacles.some((o) => inside(p, o, -tol))) continue; // bod v překážce
+              if (obstacles.some((o) => Math.abs(p.x - o.x) < 0.01 || Math.abs(p.y - o.y) < 0.01))
+                continue;
+              expect(f.some((r) => inside(p, r, -tol))).toBe(true);
             }
           }
         },
       ),
+      { numRuns: 200, seed: 99 },
     );
   });
 });
@@ -288,6 +327,14 @@ describe('property testy invariantů', () => {
     }))
     .filter((inp) => validateNestingInput(inp).length === 0);
 
+  const arbEdgeInput: fc.Arbitrary<NestingInput> = arbEdgeNestingInput(arbSpacing)
+    .map(({ parts, sheets, spacing }) => ({
+      parts,
+      sheets,
+      params: { ...DEFAULT_NESTING_PARAMS, spacing },
+    }))
+    .filter((inp) => validateNestingInput(inp).length === 0);
+
   it('žádný překryv, rozestup, užitná plocha, zóny, úplnost, sklad (všechny heuristiky)', () => {
     fc.assert(
       fc.property(
@@ -314,26 +361,42 @@ describe('property testy invariantů', () => {
     );
   });
 
-  it('too-large jen pro díly, které se opravdu nevejdou do užitné plochy žádné tabule', () => {
+  it('okrajové vstupy: materiály, sklad 0, zbytky, zóny přes/mimo tabuli, díly přesně na míru', () => {
     fc.assert(
-      fc.property(arbInput, (inp) => {
-        const r = nestRects(inp);
-        const s = inp.params.spacing;
-        for (const u of r.unplaced.filter((x) => x.reason === 'too-large')) {
-          const p = inp.parts.find((x) => x.id === u.partId)!;
-          for (const sh of inp.sheets) {
-            const ur = usableRect(sh, s);
-            expect(p.width + s <= ur.width + 1e-3 && p.height + s <= ur.height + 1e-3).toBe(false);
-          }
-        }
+      fc.property(arbEdgeInput, fc.constantFrom(...RECT_HEURISTICS), (inp, h) => {
+        const r = packRects(inp, h, 'area');
+        expect(rectInvariantViolations(inp, r)).toEqual([]);
+        expect(rectInvariantViolations(inp, nestRects(inp))).toEqual([]);
       }),
-      { numRuns: 100, seed: 3 },
+      { numRuns: 300, seed: 5 },
+    );
+  });
+
+  it('kontrolor důvodů odhalí chybný důvod (test testu)', () => {
+    const inp = input([part('a', 100, 100)], [sheet()]);
+    expect(
+      reasonViolations(inp, [{ partId: 'a', instance: 0, reason: 'out-of-sheets' }]),
+    ).not.toEqual([]);
+    expect(reasonViolations(inp, [{ partId: 'a', instance: 0, reason: 'too-large' }])).not.toEqual(
+      [],
+    );
+    expect(
+      reasonViolations(inp, [{ partId: 'a', instance: 0, reason: 'no-matching-sheet' }]),
+    ).not.toEqual([]);
+    const huge = input([part('b', 5000, 100, 1, { rotation: 'ortho' })], [sheet()]);
+    expect(reasonViolations(huge, [{ partId: 'b', instance: 0, reason: 'blocked' }])).not.toEqual(
+      [],
+    );
+    // otočený se vejde → too-large je chyba
+    const tall = input([part('c', 100, 1500)], [sheet({ width: 2000, height: 1000 })]);
+    expect(reasonViolations(tall, [{ partId: 'c', instance: 0, reason: 'too-large' }])).not.toEqual(
+      [],
     );
   });
 });
 
 describe('výkon', () => {
-  it('1000 kusů 20 různých dílů na jeden formát do 5 s (16 kombinací)', () => {
+  it('1000 kusů 20 různých dílů na jeden formát (16 kombinací) v rozumném čase', () => {
     const parts = Array.from({ length: 20 }, (_, i) =>
       part(`p${i}`, 80 + ((i * 37) % 400), 60 + ((i * 53) % 300), 50),
     );
@@ -343,6 +406,7 @@ describe('výkon', () => {
     const ms = performance.now() - t0;
     expect(rectInvariantViolations(inp, r)).toEqual([]);
     expect(r.unplaced).toEqual([]);
-    expect(ms).toBeLessThan(5000);
+    // velká rezerva kvůli pomalým strojům (lokálně < 1 s); benchmark je krok 5.7
+    expect(ms).toBeLessThan(15000);
   });
 });

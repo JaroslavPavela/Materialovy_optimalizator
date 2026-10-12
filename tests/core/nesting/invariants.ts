@@ -7,7 +7,9 @@ import {
   sheetMatchesPart,
   totalInstances,
   type NestingInput,
+  type Part,
   type Placement,
+  type Sheet,
   type SheetLayout,
   type UnplacedPart,
 } from '../../../src/core/model.ts';
@@ -17,7 +19,8 @@ import {
  * přes obecnou transformaci p' = R·p + (x, y).
  */
 export function placedRect(input: NestingInput, p: Placement): Rect {
-  const part = input.parts.find((x) => x.id === p.partId)!;
+  const part = input.parts.find((x) => x.id === p.partId);
+  if (!part) throw new Error(`neznámý díl ${p.partId}`);
   const local = rectToPolygon({ x: 0, y: 0, width: part.width, height: part.height });
   return polygonBBox(placePolygon(local, p.rotation, p.x, p.y));
 }
@@ -37,7 +40,8 @@ function gap(a: Rect, b: Rect): number {
  * 3. od zakázaných zón (jejich obalových obdélníků) ≥ rozestup − EPS,
  * 4. každý kus umístěn právě jednou, nebo nahlášen jako neumístěný,
  * 5. natočení povolené pro obdélníkový režim,
- * 6. počet tabulí formátu ≤ sklad, díl na tabuli z odpovídajícího materiálu.
+ * 6. počet tabulí formátu ≤ sklad, díl na tabuli z odpovídajícího materiálu,
+ * 7. důvody neumístění odpovídají vstupu (viz `reasonViolations`).
  */
 export function rectInvariantViolations(
   input: NestingInput,
@@ -60,6 +64,11 @@ export function rectInvariantViolations(
     }
     usedSheets.set(sheet.id, (usedSheets.get(sheet.id) ?? 0) + 1);
     if (layout.placements.length === 0) v.push(`tabule ${li}: prázdná tabule`);
+    const unknown = layout.placements.filter((p) => !input.parts.some((x) => x.id === p.partId));
+    if (unknown.length > 0) {
+      v.push(`tabule ${li}: neznámé díly ${unknown.map((p) => p.partId).join(', ')}`);
+      return;
+    }
     const rects = layout.placements.map((p) => placedRect(input, p));
     layout.placements.forEach((p, i) => {
       mark(p.partId, p.instance);
@@ -104,11 +113,62 @@ export function rectInvariantViolations(
   if (total !== totalInstances(input.parts))
     v.push(`počet kusů ${total} ≠ ${totalInstances(input.parts)}`);
 
+  v.push(...reasonViolations(input, result.unplaced));
+
   for (const sheet of input.sheets) {
     const used = usedSheets.get(sheet.id) ?? 0;
     if (sheet.stock !== null && used > sheet.stock) {
       v.push(`formát ${sheet.id}: použito ${used} > sklad ${sheet.stock}`);
     }
+  }
+  return v;
+}
+
+/** Vejde se díl (nafouknutý o s) rozměrově do užitné plochy tabule v povolené orientaci? */
+export function fitsUsable(part: Part, sheet: Sheet, spacing: number): boolean {
+  const uw = sheet.width - 2 * sheet.margin + spacing;
+  const uh = sheet.height - 2 * sheet.margin + spacing;
+  const w = part.width + spacing;
+  const h = part.height + spacing;
+  const tol = EPS;
+  return rectRotations(part.rotation).some((r) =>
+    r === 0 ? w <= uw + tol && h <= uh + tol : h <= uw + tol && w <= uh + tol,
+  );
+}
+
+/**
+ * Nezávislá kontrola důvodů neumístění:
+ * - `no-matching-sheet` ⇔ žádná tabule neodpovídá materiálem/tloušťkou,
+ * - `too-large` ⇒ díl se rozměrově nevejde na žádnou vhodnou tabuli se skladem,
+ * - `blocked` ⇒ rozměrově by se vešel na některou vhodnou tabuli se skladem,
+ * - kus, který se vejde na vhodnou tabuli s neomezeným skladem a bez zón,
+ *   nesmí zůstat neumístěný.
+ */
+export function reasonViolations(input: NestingInput, unplaced: readonly UnplacedPart[]): string[] {
+  const v: string[] = [];
+  const s = input.params.spacing;
+  for (const u of unplaced) {
+    const part = input.parts.find((x) => x.id === u.partId);
+    if (!part) {
+      v.push(`neumístěný neznámý díl ${u.partId}`);
+      continue;
+    }
+    const label = `${u.partId}#${u.instance} (${u.reason})`;
+    const matching = input.sheets.filter((sh) => sheetMatchesPart(part, sh));
+    const available = matching.filter((sh) => sh.stock !== 0);
+    if ((u.reason === 'no-matching-sheet') !== (matching.length === 0)) {
+      v.push(`${label}: důvod neodpovídá materiálu tabulí`);
+    }
+    if (u.reason === 'too-large' && available.some((sh) => fitsUsable(part, sh, s))) {
+      v.push(`${label}: na některou tabuli se rozměrově vejde`);
+    }
+    if (u.reason === 'blocked' && !available.some((sh) => fitsUsable(part, sh, s))) {
+      v.push(`${label}: rozměrově se nevejde nikam – mělo být too-large`);
+    }
+    const easy = available.some(
+      (sh) => sh.stock === null && sh.forbiddenZones.length === 0 && fitsUsable(part, sh, s),
+    );
+    if (easy) v.push(`${label}: vejde se na tabuli s neomezeným skladem bez zón`);
   }
   return v;
 }
