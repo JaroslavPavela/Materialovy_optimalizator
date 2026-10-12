@@ -1,4 +1,5 @@
 import fc from 'fast-check';
+import { approximateSegment, contourBBox } from '../../src/core/geometry/contour.ts';
 import type { Point, Polygon, Ring } from '../../src/core/geometry/types.ts';
 import type { ForbiddenZone, Part, RotationMode, Sheet } from '../../src/core/model.ts';
 
@@ -304,4 +305,72 @@ export const arbEdgeNestingInput = (
             })),
           };
         });
+    });
+
+/** Protíná uzavřená lomená čára sama sebe? (vlastní průniky hran, ne dotyky) */
+export function ringSelfIntersects(pts: readonly Point[]): boolean {
+  const n = pts.length;
+  const cross = (o: Point, a: Point, b: Point) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  for (let i = 0; i < n; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % n]!;
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      const c = pts[j]!;
+      const d = pts[(j + 1) % n]!;
+      if (cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Tvarový díl: hvězdicový obrys (poloměr 8–60 mm) s malými oblouky
+ * (|bulge| ≤ 0,2), volitelně kruhový otvor uprostřed, posunutý tak, aby
+ * obalový obdélník začínal v (0, 0). Samoprotínající se tvary vyřazeny.
+ */
+export const arbShapePart = (id: string): fc.Arbitrary<Part> =>
+  fc
+    .record({
+      star: arbStarRing(8, 60),
+      bulges: fc.array(fc.double({ min: -0.2, max: 0.2, noNaN: true }), {
+        minLength: 16,
+        maxLength: 16,
+      }),
+      hole: fc.boolean(),
+      quantity: fc.integer({ min: 1, max: 4 }),
+      rotation: fc.constantFrom<RotationMode>('free', 'ortho', 'flip', 'locked'),
+    })
+    .map(({ star, bulges, hole, quantity, rotation }) => {
+      const outer = star.ring.map((p, i) => ({ x: p.x, y: p.y, bulge: bulges[i]! }));
+      const r = star.rMin * 0.1;
+      const holes = hole
+        ? [
+            [
+              { x: star.center.x - r, y: star.center.y, bulge: -1 },
+              { x: star.center.x + r, y: star.center.y, bulge: -1 },
+            ],
+          ]
+        : [];
+      const bb = contourBBox(outer);
+      const move = (c: { x: number; y: number; bulge: number }[]) =>
+        c.map((v) => ({ ...v, x: v.x - bb.x, y: v.y - bb.y }));
+      return {
+        id,
+        name: `Tvar ${id}`,
+        width: bb.width,
+        height: bb.height,
+        quantity,
+        rotation,
+        shape: { outer: move(outer), holes: holes.map(move) },
+      };
+    })
+    .filter((p) => {
+      const c = p.shape!.outer;
+      const dense = c.flatMap((v, i) => [
+        v,
+        ...approximateSegment(v, c[(i + 1) % c.length]!, v.bulge, 0.05),
+      ]);
+      return !ringSelfIntersects(dense);
     });

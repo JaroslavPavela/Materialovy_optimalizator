@@ -115,7 +115,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       přípustná pozice; neumístitelné díly → další tabule.
 - [x] 5.4 Optimalizátor: genetický algoritmus nad pořadím a natočením,
       časový limit, průběžné posílání nejlepšího výsledku do UI.
-- [ ] 5.5 Property testy: plocha průniku dvou dílů < EPS, vše uvnitř užitné
+- [x] 5.5 Property testy: plocha průniku dvou dílů < EPS, vše uvnitř užitné
       plochy, vzdálenost dílů ≥ rozestup − EPS.
 - [ ] 5.6 UI: volba režimu (obdélníkový / tvarový), průběh, tlačítko
       „Zastavit a použít nejlepší".
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 5.5
-Poslední commit: fix: opravy z revize placeru – falešné otvory NFP, pojistka (krok 5.3)
+Aktuální krok: 5.6
+Poslední commit: test: property testy tvarového nestingu (krok 5.5)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -392,3 +392,11 @@ BLOKOVÁNO: ne
   vpravo/nahoře na poslední tabuli. Kontrola invariantů v testech je
   přísnější (plocha průniku ≤ 1e-6 mm² po přesném nafouknutí o (s − EPS)/2).
   Případy z revize jsou nové vzorky tests/fixtures/nesting/.
+- 5.5: tests/core/nesting/shape-properties.test.ts – náhodné hvězdicové
+  tvary s oblouky a otvory (bez samoprůniků), všechny režimy natočení,
+  kroky 30/45/90°, rozestup 0–8, okraj, sklad, zóny; placer (30 běhů)
+  i optimalizátor (8 běhů). Kontrola nezávisle přes Clipper: průnik
+  skutečných tvarů nafouknutých o (s − EPS)/2 ≤ 1e-6 mm² (tj. vzdálenost
+  ≥ s − EPS), tvar v tabuli bez okraje (tolerance EPS), od zón ≥ s − EPS,
+  každý kus právě jednou, natočení, sklad a materiál. Mimo sadu ověřeno
+  200 dalších náhodných případů bez porušení.
