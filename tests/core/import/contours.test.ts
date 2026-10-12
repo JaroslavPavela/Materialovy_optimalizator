@@ -295,8 +295,9 @@ describe('revize 4.2: okrajové případy', () => {
       const b = { x: 50 * Math.cos(sweep), y: 50 * Math.sin(sweep) };
       const r = buildContours([L(a, b, Math.tan(sweep / 4))]);
       expect(r.regions).toHaveLength(1);
-      // Chybí jen úseč nad uzavřenou mezerou.
-      expect(Math.abs(areas(r)[0]! - Math.PI * 2500)).toBeLessThan(0.002 * Math.PI * 2500);
+      // Přichycení konce přes mezeru (≤ GAP_TOL) pootočí poslední oblouk:
+      // změna plochy ≈ poloměr × mezera.
+      expect(Math.abs(areas(r)[0]! - Math.PI * 2500)).toBeLessThan(50 * 0.1);
     }
   });
 
@@ -353,7 +354,7 @@ describe('revize 4.2: okrajové případy', () => {
     expect(bow.errors[0]).toMatch(/protíná sama sebe u bodu/);
     const cross = buildContours([...sq(0, 0, 10, 10), ...sq(5, 5, 10, 10)]);
     expect(cross.regions).toEqual([]);
-    expect(cross.errors.join()).toMatch(/Kontury se protínají/);
+    expect(cross.errors.join()).toMatch(/obrys se překrývá s jiným/);
   });
 
   it('překrývající se kolineární čára (známé omezení) se nahlásí, ne tiše', () => {
@@ -403,5 +404,133 @@ describe('revize 4.2: okrajové případy', () => {
       expect(r.regions).toHaveLength(1);
       expect(r.regions[0]!.holes).toHaveLength(1);
     }
+  });
+});
+
+describe('revize 4.2 (2. kolo): kontrola ploch', () => {
+  const sq = (x: number, y: number, w: number, h = w) => rect(x, y, w, h);
+  const poly = (pts: readonly Point[]) => pts.map((p, i) => L(p, pts[(i + 1) % pts.length]!));
+  const P = (x: number, y: number) => ({ x, y });
+
+  it('křížení přes společné vrcholy nebo přes vrchol cizí kontury → chyba, žádný chybný otvor', () => {
+    const kite = buildContours([
+      ...sq(0, 0, 10),
+      ...poly([P(0, 0), P(10, 10), P(20, 0), P(10, -10)]),
+    ]);
+    expect(kite.regions).toEqual([]);
+    expect(kite.errors.join()).toMatch(/překrývá|přesahuje/);
+    const tri = buildContours([...sq(0, 0, 10), ...poly([P(-5, -5), P(15, 15), P(20, -5)])]);
+    expect(tri.regions.every((r) => r.holes.length === 0)).toBe(true);
+    expect(tri.errors.length).toBeGreaterThan(0);
+  });
+
+  it('dotyk ve dvou uzlech: výsledek nezávisí na pořadí (správný díl, nebo chyba)', () => {
+    const sq8 = poly([
+      P(0, 0),
+      P(5, 0),
+      P(10, 0),
+      P(10, 5),
+      P(10, 10),
+      P(5, 10),
+      P(0, 10),
+      P(0, 5),
+    ]);
+    const dia = poly([P(5, 0), P(10, 5), P(5, 10), P(0, 5)]);
+    for (const segs of [
+      [...sq8, ...dia],
+      [...sq8.slice(3), ...dia, ...sq8.slice(0, 3)],
+    ]) {
+      const r = buildContours(segs);
+      for (const x of r.regions) {
+        expect(contourArea(x.outer)).toBeCloseTo(100, 6);
+        expect(x.holes.map(contourArea)).toEqual([expect.closeTo(50, 6)]);
+      }
+      if (r.regions.length === 0) expect(r.errors.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('vrchol otvoru přesně na oblouku vnějšího obrysu: otvor zůstane', () => {
+    for (const a of [0.7, 1.1, 2.0]) {
+      const r = buildContours([
+        ...circle(0, 0, 50),
+        ...poly([P(50 * Math.cos(a), 50 * Math.sin(a)), P(0, -10), P(-10, 0)]),
+      ]);
+      expect(r.errors).toEqual([]);
+      expect(r.regions).toHaveLength(1);
+      expect(r.regions[0]!.holes).toHaveLength(1);
+    }
+  });
+
+  it('symetrická osmička uvnitř dílu je samoprůnik a díl se vyřadí', () => {
+    const r = buildContours([
+      ...sq(0, 0, 100),
+      ...poly([P(20, 20), P(40, 30), P(40, 20), P(20, 30)]),
+    ]);
+    expect(r.errors.join('\n')).toMatch(/protíná sama sebe/);
+    expect(r.errors.join('\n')).toMatch(/Díl u bodu .* vynechán: uvnitř je chybná kontura/);
+    expect(r.regions).toEqual([]);
+  });
+
+  it('nedokreslený otvor uvnitř dílu: díl se vyřadí (nevznikne díl bez otvoru)', () => {
+    const three = [L(P(20, 20), P(40, 20)), L(P(40, 20), P(40, 40)), L(P(40, 40), P(20, 40))];
+    const r = buildContours([...sq(0, 0, 100), ...three]);
+    expect(r.regions).toEqual([]);
+    expect(r.errors[0]).toMatch(/Kontura není uzavřená/);
+    expect(r.errors[1]).toMatch(/vynechán/);
+  });
+
+  it('čára přes díl s konci na hranách (ohyb) díl nevyřadí; spojka obrys–otvor se hlásí jako čára', () => {
+    const bend = buildContours([...sq(0, 0, 200, 100), L(P(100, 0), P(100, 100))]);
+    expect(bend.regions).toHaveLength(1);
+    expect(bend.errors).toHaveLength(1);
+    const link = buildContours([...sq(0, 0, 100), ...sq(20, 20, 10), L(P(0, 0), P(20, 20))]);
+    expect(link.regions[0]!.holes).toHaveLength(1);
+    expect(link.errors).toEqual([
+      'Čára mimo uzavřené obrysy mezi body (0,0; 0,0) a (20,0; 20,0) – ignorována.',
+    ]);
+  });
+
+  it('tentýž obrys nakreslený dvakrát s jiným dělením hran = jeden díl s varováním', () => {
+    const sq8 = poly([
+      P(0, 0),
+      P(5, 0),
+      P(10, 0),
+      P(10, 5),
+      P(10, 10),
+      P(5, 10),
+      P(0, 10),
+      P(0, 5),
+    ]);
+    const r = buildContours([...sq(0, 0, 10), ...sq8]);
+    expect(r.regions).toHaveLength(1);
+    expect(r.warnings.join()).toMatch(/nakreslený dvakrát/);
+    expect(r.errors).toEqual([]);
+  });
+
+  it('duplicity oblouku: výška do tolerance se slučuje, nad ní ne', () => {
+    const c = circle(0, 0, 10);
+    const chord = 20;
+    const merged = buildContours([...c, L(c[0]!.a, c[0]!.b, 1 + (2 * 0.009) / chord)]);
+    expect(merged.warnings).toEqual(['Odstraněno duplicitních segmentů: 1.']);
+    const kept = buildContours([...c, L(c[0]!.a, c[0]!.b, 1 + (2 * 0.011) / chord)]);
+    expect(kept.warnings).toEqual([]);
+  });
+
+  it('výkon: vzdálená entita a dlouhé šikmé hrany nezpomalí kontrolu', () => {
+    const holes = Array.from({ length: 1000 }, (_, i) =>
+      circle(20 + (i % 40) * 50, 20 + Math.floor(i / 40) * 50, 10),
+    ).flat();
+    const diagonals = Array.from({ length: 5 }, (_, i) =>
+      poly([P(i * 10, 0), P(i * 10 + 3000, 1500), P(i * 10 + 3005, 1500)]),
+    ).flat();
+    const t = performance.now();
+    const r = buildContours([
+      ...sq(0, 0, 2000, 1300),
+      ...holes,
+      ...sq(100000, 100000, 10),
+      ...diagonals,
+    ]);
+    expect(performance.now() - t).toBeLessThan(4000);
+    expect(r.regions.length).toBeGreaterThan(0);
   });
 });

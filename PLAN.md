@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: 5.3
-Poslední commit: feat: NFP, IFP a přípustná oblast (krok 5.2)
+Poslední commit: fix: kontrola kontur přes plochy (krok 4.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -336,3 +336,13 @@ BLOKOVÁNO: ne
   IFP obdélníkové užitné plochy je přesný; díl přesně na míru dá pruh šířky
   EPS, aby ho booleovské operace neztratily. Zóny jsou překážky přes
   NFP(zóna, B) v souřadnicích tabule.
+- 4.2 (revize 2): Mřížkové hledání průsečíků (degenerovalo na O(n²) při
+  vzdálené entitě) nahradila kontrola přes plochy v Clipperu: samoprůnik =
+  plocha sjednocení ≠ |orientovaná plocha| (odhalí i symetrickou osmičku),
+  otvor musí ležet celý v obrysu, otvory ani materiál různých dílů se
+  nepřekrývají (v toleranci JOIN_TOL × obvod). Shodný obrys nakreslený
+  dvakrát s jiným dělením hran se sloučí s varováním. Díl, v jehož materiálu
+  leží volný konec neuzavřené kontury, větvení nebo samoprůnik, se vynechá
+  s chybou – nevznikne díl bez nedokresleného otvoru. Čára mezi dvěma
+  uzavřenými obrysy (spojka) díl nezničí. Import DXF zatím běží v UI vlákně;
+  přesun do workeru zvážit v kroku 5.7.
