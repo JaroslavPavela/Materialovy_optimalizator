@@ -11,6 +11,7 @@ import {
   type Sheet,
 } from '../core/model.ts';
 import type { NestOutcome, NestProgress } from '../core/nesting/nest.ts';
+import { parseProject, type Project } from '../core/project.ts';
 import { createNestingClient, NestingAbortedError, type NestingClient } from '../worker/client.ts';
 
 export interface ImportReport {
@@ -20,6 +21,13 @@ export interface ImportReport {
   readonly warnings: readonly CsvIssue[];
 }
 
+/** Výsledek načtení projektu ze souboru JSON. */
+export interface ProjectReport {
+  readonly fileName: string;
+  readonly ok: boolean;
+  readonly messages: readonly string[];
+}
+
 export type Status = 'idle' | 'running' | 'done' | 'error';
 
 export interface AppState {
@@ -27,6 +35,9 @@ export interface AppState {
   readonly sheets: readonly Sheet[];
   readonly params: NestingParams;
   readonly importReport: ImportReport | null;
+  readonly projectReport: ProjectReport | null;
+  /** Uložené formáty tabulí – sdílené mezi projekty. */
+  readonly sheetLibrary: readonly Sheet[];
   readonly status: Status;
   readonly progress: { readonly step: number; readonly total: number } | null;
   /** Výsledek a vstup, ze kterého vznikl (díly se mezitím mohou měnit). */
@@ -40,6 +51,17 @@ export interface AppState {
 
 export interface AppActions {
   importCsv(fileName: string, data: ArrayBuffer): void;
+  /** Nahradí zadání projektem (z úložiště nebo souboru); běžící výpočet zruší. */
+  loadProject(project: Project): void;
+  /** Načte projekt z textu JSON; při chybě zadání nezmění. */
+  importProjectJson(fileName: string, text: string): void;
+  /** Prázdný projekt s výchozí tabulí; knihovna formátů zůstane. */
+  newProject(): void;
+  setSheetLibrary(sheets: readonly Sheet[]): void;
+  /** Uloží kopii tabule do knihovny; formát se stejným názvem nahradí. */
+  saveSheetToLibrary(sheetId: string): void;
+  addSheetFromLibrary(libraryId: string): void;
+  removeFromLibrary(libraryId: string): void;
   addPart(): void;
   /** Změna polí dílu; `undefined` volitelné pole smaže (materiál, tloušťka). */
   updatePart(id: string, patch: Patch<Part>): void;
@@ -88,6 +110,8 @@ const initialState: AppState = {
   sheets: [DEFAULT_SHEET],
   params: DEFAULT_NESTING_PARAMS,
   importReport: null,
+  projectReport: null,
+  sheetLibrary: [],
   status: 'idle',
   progress: null,
   result: null,
@@ -97,6 +121,20 @@ const initialState: AppState = {
   error: null,
   activeSheet: 0,
 };
+
+/** Stav, který se při načtení jiného projektu vrátí na začátek. */
+const projectReset = {
+  importReport: null,
+  projectReport: null,
+  status: 'idle',
+  progress: null,
+  result: null,
+  resultInput: null,
+  stopped: false,
+  issues: [],
+  error: null,
+  activeSheet: 0,
+} satisfies Partial<AppState>;
 
 let client: NestingClient | null = null;
 /** Klient workeru (vytvoří se při prvním výpočtu); v testech lze podstrčit vlastní. */
@@ -120,6 +158,59 @@ export function rectZone(id: string, x: number, y: number, w: number, h: number)
 
 export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   ...initialState,
+
+  loadProject(project) {
+    if (get().status === 'running') client?.abort();
+    set({
+      ...projectReset,
+      parts: project.parts,
+      sheets: project.sheets,
+      params: project.params,
+    });
+  },
+
+  importProjectJson(fileName, text) {
+    const r = parseProject(text);
+    if (!r.ok) {
+      set({ projectReport: { fileName, ok: false, messages: r.errors } });
+      return;
+    }
+    get().loadProject(r.project);
+    set({ projectReport: { fileName, ok: true, messages: r.warnings } });
+  },
+
+  newProject() {
+    get().loadProject({ parts: [], sheets: [DEFAULT_SHEET], params: DEFAULT_NESTING_PARAMS });
+  },
+
+  setSheetLibrary(sheets) {
+    set({ sheetLibrary: sheets });
+  },
+
+  saveSheetToLibrary(sheetId) {
+    const sheet = get().sheets.find((s) => s.id === sheetId);
+    if (!sheet) return;
+    set((s) => {
+      const same = s.sheetLibrary.findIndex((l) => l.name === sheet.name);
+      const copy = { ...sheet, id: same >= 0 ? s.sheetLibrary[same]!.id : newId('format') };
+      return {
+        sheetLibrary:
+          same >= 0
+            ? s.sheetLibrary.map((l, i) => (i === same ? copy : l))
+            : [...s.sheetLibrary, copy],
+      };
+    });
+  },
+
+  addSheetFromLibrary(libraryId) {
+    const sheet = get().sheetLibrary.find((l) => l.id === libraryId);
+    if (!sheet) return;
+    set((s) => ({ sheets: [...s.sheets, { ...sheet, id: newId('tabule') }] }));
+  },
+
+  removeFromLibrary(libraryId) {
+    set((s) => ({ sheetLibrary: s.sheetLibrary.filter((l) => l.id !== libraryId) }));
+  },
 
   importCsv(fileName, data) {
     const r = parsePartsCsv(data, { idPrefix: newId('csv') });
@@ -268,5 +359,6 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
 /** Vrátí store do výchozího stavu (testy, nový projekt). */
 export function resetAppStore(): void {
+  client?.abort();
   useAppStore.setState(initialState);
 }

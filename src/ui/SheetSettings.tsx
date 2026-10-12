@@ -1,5 +1,6 @@
 import type { ForbiddenZone, Sheet } from '../core/model.ts';
 import { rectZone, useAppStore } from '../state/store.ts';
+import { formatNumber } from './format.ts';
 import { NumberInput } from './NumberInput.tsx';
 
 /** Zóna zadaná jako obdélník: hodnoty pro editaci (x, y, šířka, výška). */
@@ -73,6 +74,7 @@ function SheetCard({ sheet, index }: { sheet: Sheet; index: number }) {
   const updateSheet = useAppStore((s) => s.updateSheet);
   const removeSheet = useAppStore((s) => s.removeSheet);
   const addZone = useAppStore((s) => s.addZone);
+  const saveSheetToLibrary = useAppStore((s) => s.saveSheetToLibrary);
   const canRemove = useAppStore((s) => s.sheets.length > 1);
   const n = index + 1;
   return (
@@ -152,6 +154,9 @@ function SheetCard({ sheet, index }: { sheet: Sheet; index: number }) {
         <button type="button" className="secondary" onClick={() => addZone(sheet.id)}>
           + Zakázaná zóna
         </button>
+        <button type="button" className="secondary" onClick={() => saveSheetToLibrary(sheet.id)}>
+          Uložit do knihovny
+        </button>
         {canRemove && (
           <button type="button" className="secondary" onClick={() => removeSheet(sheet.id)}>
             Odebrat tabuli
@@ -159,6 +164,47 @@ function SheetCard({ sheet, index }: { sheet: Sheet; index: number }) {
         )}
       </div>
     </fieldset>
+  );
+}
+
+/** Uložené formáty tabulí – přidání do projektu a odebrání. */
+function SheetLibrary() {
+  const library = useAppStore((s) => s.sheetLibrary);
+  const addSheetFromLibrary = useAppStore((s) => s.addSheetFromLibrary);
+  const removeFromLibrary = useAppStore((s) => s.removeFromLibrary);
+  if (library.length === 0) return null;
+  return (
+    <div className="library">
+      <h3>Knihovna formátů</h3>
+      <ul>
+        {library.map((l) => (
+          <li key={l.id}>
+            <span>
+              {l.name}{' '}
+              <span className="muted">
+                {formatNumber(l.width)} × {formatNumber(l.height)} mm
+              </span>
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              aria-label={`Přidat formát ${l.name}`}
+              onClick={() => addSheetFromLibrary(l.id)}
+            >
+              Přidat
+            </button>
+            <button
+              type="button"
+              className="icon"
+              aria-label={`Odebrat formát ${l.name} z knihovny`}
+              onClick={() => removeFromLibrary(l.id)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -178,6 +224,7 @@ export function SheetSettings() {
         <button type="button" onClick={addSheet}>
           + Přidat formát
         </button>
+        <SheetLibrary />
       </section>
       <section className="panel">
         <h2>Parametry</h2>

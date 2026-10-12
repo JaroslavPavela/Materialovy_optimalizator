@@ -398,3 +398,34 @@ svg .remnant-label {
 svg .remnant-label {
   fill: #1a7f37;
 }
+
+.panel .hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.85em;
+}
+
+.library {
+  margin-top: 0.75rem;
+}
+
+.library h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+}
+
+.library ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.library li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+}
+
+.library li > span {
+  flex: 1;
+}

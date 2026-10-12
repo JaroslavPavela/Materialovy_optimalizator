@@ -2,6 +2,7 @@ import { CalculatePanel } from '../ui/CalculatePanel.tsx';
 import { FileDrop } from '../ui/FileDrop.tsx';
 import { PartsTable } from '../ui/PartsTable.tsx';
 import { PlanView } from '../ui/PlanView.tsx';
+import { ProjectPanel } from '../ui/ProjectPanel.tsx';
 import { ResultSummary } from '../ui/ResultSummary.tsx';
 import { SheetSettings } from '../ui/SheetSettings.tsx';
 
@@ -14,6 +15,7 @@ export function App() {
       </header>
       <div className="layout">
         <aside className="inputs">
+          <ProjectPanel />
           <FileDrop />
           <PartsTable />
           <SheetSettings />

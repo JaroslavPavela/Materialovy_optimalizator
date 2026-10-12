@@ -71,7 +71,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       (rozestup, rotace), tlačítko Vypočítat, náhled v SVG (zoom, posun,
       popisky, barva podle dílu), přepínání tabulí, souhrn využití.
       Hotovo: průchod v `npm run dev` bez chyb v konzoli (ověřit Playwrightem).
-- [ ] 2.6 Úložiště (Dexie): automatické uložení posledního projektu,
+- [x] 2.6 Úložiště (Dexie): automatické uložení posledního projektu,
       knihovna formátů tabulí, export/import projektu jako JSON.
 - [ ] 2.7 E2E test: nahraj fixture CSV → zobrazí se plán a využití > 0 %.
 
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 2.6
-Poslední commit: feat: UI – import, tabulka dílů, tabule, výpočet a náhled plánu (krok 2.5)
+Aktuální krok: 2.7
+Poslední commit: feat: úložiště projektu, knihovna formátů a JSON (krok 2.6)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -219,3 +219,13 @@ BLOKOVÁNO: ne
   optimalizace patří do kroku 5.7. Nad rámec kroku přidány testy store
   (tests/state) a E2E průchod UI (tests/e2e/ui.spec.ts); E2E s velkým souborem
   používá CSS lokátory – `getByRole` s názvem nad 8000 poli blokoval stránku.
+- 2.6: Formát projektu a jeho ověření je v jádře (`core/project.ts`, verze 1,
+  pole `format` odliší projekt od jiného JSON). Data z IndexedDB se při načtení
+  ověřují stejně jako soubor – úložiště mohla zapsat starší verze aplikace.
+  Kontroluje se jen struktura; hodnoty ověří až výpočet, aby šel načíst
+  i rozpracovaný projekt. Chybějící parametry se doplní výchozími s varováním.
+- 2.6: Dexie je za rozhraním `ProjectStorage`; synchronizaci se store testují
+  jednotkové testy s úložištěm v paměti (bez fake-indexeddb), skutečnou
+  IndexedDB ověřuje E2E (obnovení stránky). Ukládá se jen zadání (díly,
+  tabule, parametry), ne výsledek. Knihovna formátů je společná pro projekty;
+  formát se stejným názvem se při uložení přepíše.

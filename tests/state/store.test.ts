@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { DEFAULT_NESTING_PARAMS } from '../../src/core/model.ts';
 import { nest } from '../../src/core/nesting/nest.ts';
+import { serializeProject } from '../../src/core/project.ts';
 import { resetAppStore, setNestingClient, useAppStore } from '../../src/state/store.ts';
 import type { NestingClient } from '../../src/worker/client.ts';
 
@@ -87,5 +89,55 @@ describe('store', () => {
     state().setActiveSheet(5);
     await state().calculate();
     expect(state().activeSheet).toBe(0);
+  });
+
+  it('načtení projektu nahradí zadání a smaže výsledek', async () => {
+    state().addPart();
+    await state().calculate();
+    const sheets = [{ ...state().sheets[0]!, id: 'jina', name: 'Jiná' }];
+    state().loadProject({ parts: [], sheets, params: { ...DEFAULT_NESTING_PARAMS, spacing: 3 } });
+    const s = state();
+    expect(s.parts).toEqual([]);
+    expect(s.sheets).toBe(sheets);
+    expect(s.params.spacing).toBe(3);
+    expect(s.result).toBeNull();
+    expect(s.status).toBe('idle');
+  });
+
+  it('import JSON: platný projekt se načte, neplatný zadání nezmění', () => {
+    state().addPart();
+    const text = serializeProject(state(), new Date());
+    state().newProject();
+    expect(state().parts).toEqual([]);
+    state().importProjectJson('p.json', text);
+    expect(state().parts).toHaveLength(1);
+    expect(state().projectReport).toEqual({ fileName: 'p.json', ok: true, messages: [] });
+
+    state().importProjectJson('spatny.json', '{"format":"jiny"}');
+    expect(state().parts).toHaveLength(1);
+    expect(state().projectReport?.ok).toBe(false);
+  });
+
+  it('knihovna formátů: uložení, přepsání podle názvu, přidání do projektu a odebrání', () => {
+    const sheetId = state().sheets[0]!.id;
+    state().saveSheetToLibrary(sheetId);
+    expect(state().sheetLibrary).toHaveLength(1);
+    const libId = state().sheetLibrary[0]!.id;
+    expect(libId).not.toBe(sheetId);
+
+    state().updateSheet(sheetId, { margin: 25 });
+    state().saveSheetToLibrary(sheetId);
+    expect(state().sheetLibrary).toHaveLength(1);
+    expect(state().sheetLibrary[0]).toMatchObject({ id: libId, margin: 25 });
+
+    state().newProject();
+    expect(state().sheetLibrary).toHaveLength(1);
+    state().addSheetFromLibrary(libId);
+    expect(state().sheets).toHaveLength(2);
+    expect(state().sheets[1]).toMatchObject({ margin: 25 });
+    expect(new Set(state().sheets.map((s) => s.id)).size).toBe(2);
+
+    state().removeFromLibrary(libId);
+    expect(state().sheetLibrary).toEqual([]);
   });
 });
