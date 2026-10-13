@@ -132,7 +132,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Fáze 7 – Dokončení
 
 - [x] 7.1 Revize celého src/core subagentem revize-geometrie, opravy.
-- [ ] 7.2 README česky: spuštění, formát CSV, podporované DXF entity,
+- [x] 7.2 README česky: spuštění, formát CSV, podporované DXF entity,
       omezení, nasazení statického buildu (Coolify / libovolný web server).
 - [ ] 7.3 Finální kontrola: lint, typecheck, test, e2e, build bez chyb
       a varování; push.
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 7.2
-Poslední commit: fix: opravy z celkové revize jádra (krok 7.1)
+Aktuální krok: 7.3
+Poslední commit: docs: README (krok 7.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -462,3 +462,6 @@ BLOKOVÁNO: ne
   Přidány testy: ozubení a hřeben v Minkowského součtu s výkonovou
   pojistkou, rozdíl s překrývajícími se otvory NFP, limit uprostřed
   výchozího jedince, benchmark samotného tvarového placeru (200 dílů 5,5 s).
+- 7.2: README navíc popisuje použití UI, režimy skládání, export DXF
+  (vrstvy) a omezení; časy placeru změřeny po opravách 7.1 (200 dílů ~6 s,
+  s volnou rotací po 45° ~28 s).
