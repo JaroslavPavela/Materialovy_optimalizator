@@ -134,15 +134,15 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 7.1 Revize celého src/core subagentem revize-geometrie, opravy.
 - [x] 7.2 README česky: spuštění, formát CSV, podporované DXF entity,
       omezení, nasazení statického buildu (Coolify / libovolný web server).
-- [ ] 7.3 Finální kontrola: lint, typecheck, test, e2e, build bez chyb
+- [x] 7.3 Finální kontrola: lint, typecheck, test, e2e, build bez chyb
       a varování; push.
 
 ---
 
 ## Stav
 
-Aktuální krok: 7.3
-Poslední commit: docs: README (krok 7.2)
+Aktuální krok: hotovo (všechny kroky odškrtnuty)
+Poslední commit: chore: finální kontrola (krok 7.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -465,3 +465,9 @@ BLOKOVÁNO: ne
 - 7.2: README navíc popisuje použití UI, režimy skládání, export DXF
   (vrstvy) a omezení; časy placeru změřeny po opravách 7.1 (200 dílů ~6 s,
   s volnou rotací po 45° ~28 s).
+- 7.3: Lint, typecheck, 461 testů, 20 e2e testů a build bez chyb a varování
+  (hlavní balík 406 kB, worker 183 kB). Test Minkowského součtu rozdělen na
+  srovnání s Clipperem (menší tvary) a výkonovou pojistku (ozubení 24 zubů),
+  aby nepadal na časovém limitu pod zátěží. Push selhal – repozitář nemá
+  nastavený remote („No configured push destination"); remote a první push
+  musí udělat uživatel.
