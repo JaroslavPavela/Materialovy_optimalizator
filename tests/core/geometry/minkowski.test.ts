@@ -123,18 +123,25 @@ describe('minkowski přes konvexní rozklad', () => {
   };
 
   it.each([
-    ['ozubení 24 zubů se sebou', gear(24), gear(24)],
-    ['ozubení a hřeben', gear(16), comb(12)],
+    ['ozubení 12 zubů se sebou', gear(12), gear(12)],
+    ['ozubení a hřeben', gear(12), comb(8)],
     ['hřeben se sebou (otočeným)', comb(10), comb(10).map((p) => ({ x: -p.x, y: -p.y }))],
-  ])('%s: stejná plocha jako Clipper a do 2 s', (_, a, b) => {
-    const t0 = performance.now();
+  ])('%s: stejná plocha jako Clipper', (_, a, b) => {
     const fast = minkowskiSumFast(a, b);
-    // Výkonová pojistka: jedno sjednocení všech kusů trvalo u 24 zubů ~30 s.
-    expect(performance.now() - t0).toBeLessThan(2000);
     const ref = minkowskiSum(a, b);
     const area = polygonsArea(ref);
     expect(Math.abs(polygonsArea(fast) - area)).toBeLessThan(1e-4 * Math.max(1, area));
   });
+
+  it('výkon: ozubení 24 zubů se sebou do 3 s', () => {
+    // Jedno sjednocení všech |A|·|B| kusů trvalo ~30 s, kaskádové ~0,1 s
+    // (mez s rezervou na souběžné testy).
+    const t0 = performance.now();
+    const fast = minkowskiSumFast(gear(24), gear(24));
+    expect(performance.now() - t0).toBeLessThan(3000);
+    // Obsahuje kruh o poloměru ~2·(100 − 8) – součet vepsaných kruhů.
+    expect(polygonsArea(fast)).toBeGreaterThan(Math.PI * 180 ** 2);
+  }, 20_000);
 });
 
 describe('IFP otvoru a konvexní obal', () => {

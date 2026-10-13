@@ -533,5 +533,5 @@ describe('revize 4.2 (2. kolo): kontrola ploch', () => {
     // Mez s rezervou na souběžné testy (bez zátěže ~1 s).
     expect(performance.now() - t).toBeLessThan(10_000);
     expect(r.regions.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 });
