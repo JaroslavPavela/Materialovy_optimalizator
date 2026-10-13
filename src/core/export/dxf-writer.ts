@@ -5,6 +5,7 @@ import { pointsBBox } from '../geometry/polygon.ts';
 import type { Contour, Point, Rect } from '../geometry/types.ts';
 import type { NestingInput, NestingResult, Part, Sheet, SheetLayout } from '../model.ts';
 import { labelSize, placedContours, placePart } from '../placed.ts';
+import { singleSheetGroups, type SheetGroup } from '../sheet-groups.ts';
 import { sheetFileName, type ExportFile } from './files.ts';
 
 /** Vrstvy a jejich barvy (AutoCAD Color Index). */
@@ -286,19 +287,25 @@ export function writeSheetDxf(
   return dxf.toString();
 }
 
-/** Všechny tabule výsledku – jeden DXF na tabuli. */
+/**
+ * Všechny tabule výsledku – jeden DXF na tabuli, nebo na skupinu shodných
+ * tabulí (`groups`, viz sheet-groups.ts; název souboru pak nese počet, např. `-4x`).
+ */
 export function writeResultDxf(
   input: NestingInput,
   result: NestingResult,
   project: string,
   opts: DxfOptions = {},
+  groups: readonly SheetGroup[] = singleSheetGroups(result),
 ): ExportFile[] {
   const sheets = new Map(input.sheets.map((s) => [s.id, s]));
-  return result.layouts.map((layout, i) => {
+  return groups.map((group, g) => {
+    const i = group.indices[0]!;
+    const layout = result.layouts[i]!;
     const sheet = sheets.get(layout.sheetId);
     if (!sheet) throw new RangeError(`Rozložení odkazuje na neznámou tabuli „${layout.sheetId}".`);
     return {
-      name: sheetFileName(project, i, result.layouts.length, 'dxf'),
+      name: sheetFileName(project, g, groups.length, 'dxf', group.indices.length),
       content: writeSheetDxf(sheet, layout, input.parts, {
         remnant: result.metrics.sheets[i]?.remnant ?? null,
         ...opts,

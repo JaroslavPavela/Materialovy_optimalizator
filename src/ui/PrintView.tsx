@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom';
 import { partColors, writeSheetSvg } from '../core/export/svg.ts';
 import { UNPLACED_REASON_LABEL, type NestingInput, type NestingResult } from '../core/model.ts';
+import { sheetNumbersText, type SheetGroup } from '../core/sheet-groups.ts';
 import { formatArea, formatNumber, formatPercent } from './format.ts';
 
 export type PaperSize = 'A4' | 'A3';
@@ -8,6 +9,8 @@ export type PaperSize = 'A4' | 'A3';
 interface Props {
   readonly input: NestingInput;
   readonly result: NestingResult;
+  /** Skupiny shodných tabulí – každá se vytiskne jednou s počtem opakování. */
+  readonly groups?: readonly SheetGroup[] | undefined;
   readonly paper: PaperSize;
   readonly date: Date;
 }
@@ -17,12 +20,13 @@ interface Props {
  * formát, využití, legenda). Vkládá se do <body> mimo aplikaci; tiskové CSS
  * skryje aplikaci a ukáže jen tento obsah.
  */
-export function PrintView({ input, result, paper, date }: Props) {
+export function PrintView({ input, result, groups, paper, date }: Props) {
   const colors = partColors(input.parts);
   const parts = new Map(input.parts.map((p) => [p.id, p]));
   const sheets = new Map(input.sheets.map((s) => [s.id, s]));
   const m = result.metrics;
   const count = result.layouts.length;
+  const blocks = groups ?? result.layouts.map((_, i) => ({ indices: [i] }));
   const dateText = date.toLocaleDateString('cs-CZ');
 
   const unplaced = new Map<string, number>();
@@ -37,14 +41,16 @@ export function PrintView({ input, result, paper, date }: Props) {
       <section className="print-page">
         <h1>Nářezový plán</h1>
         <p>
-          {dateText} · tabulí: {count} · využití {formatPercent(m.utilization)} · odpad{' '}
-          {formatPercent(m.waste)} · umístěno {m.placedCount} / {m.placedCount + m.unplacedCount} ks
-          · rozestup {formatNumber(input.params.spacing)} mm
+          {dateText} · tabulí: {count}
+          {groups && blocks.length < count && ` (různých: ${blocks.length})`} · využití{' '}
+          {formatPercent(m.utilization)} · odpad {formatPercent(m.waste)} · umístěno {m.placedCount}{' '}
+          / {m.placedCount + m.unplacedCount} ks · rozestup {formatNumber(input.params.spacing)} mm
         </p>
         <table className="print-table">
           <thead>
             <tr>
               <th>Tabule</th>
+              {groups && <th>Opakování</th>}
               <th>Formát</th>
               <th>Rozměr (mm)</th>
               <th>Dílů</th>
@@ -53,12 +59,19 @@ export function PrintView({ input, result, paper, date }: Props) {
             </tr>
           </thead>
           <tbody>
-            {result.layouts.map((l, i) => {
+            {blocks.map(({ indices }, b) => {
+              const i = indices[0]!;
+              const l = result.layouts[i]!;
               const sheet = sheets.get(l.sheetId);
               const sm = m.sheets[i];
               return (
-                <tr key={i}>
-                  <td>{i + 1}</td>
+                <tr key={b}>
+                  <td>{b + 1}</td>
+                  {groups && (
+                    <td>
+                      {indices.length}× ({sheetNumbersText(indices)})
+                    </td>
+                  )}
                   <td>{sheet?.name ?? l.sheetId}</td>
                   <td>{sheet && `${formatNumber(sheet.width)} × ${formatNumber(sheet.height)}`}</td>
                   <td>{l.placements.length}</td>
@@ -82,7 +95,10 @@ export function PrintView({ input, result, paper, date }: Props) {
           </>
         )}
       </section>
-      {result.layouts.map((layout, i) => {
+      {blocks.map(({ indices }, b) => {
+        const i = indices[0]!;
+        const copies = indices.length;
+        const layout = result.layouts[i]!;
         const sheet = sheets.get(layout.sheetId);
         if (!sheet) return null;
         const legend = new Map<string, number>();
@@ -93,10 +109,11 @@ export function PrintView({ input, result, paper, date }: Props) {
           idPrefix: `tisk-${i}-`,
         });
         return (
-          <section key={i} className="print-page">
+          <section key={b} className="print-page">
             <header className="print-header">
               <strong>
-                Tabule {i + 1} / {count}: {sheet.name}
+                Tabule {b + 1} / {blocks.length}: {sheet.name}
+                {copies > 1 && ` × ${copies} (tabule ${sheetNumbersText(indices)})`}
               </strong>
               <span>
                 {formatNumber(sheet.width)} × {formatNumber(sheet.height)} mm · využití{' '}
@@ -113,6 +130,7 @@ export function PrintView({ input, result, paper, date }: Props) {
                     <span className="swatch" style={{ background: colors.get(id) }} />
                     {part?.name ?? id} – {part && formatNumber(part.width, 2)} ×{' '}
                     {part && formatNumber(part.height, 2)} mm: {n} ks
+                    {copies > 1 && `, celkem ${n * copies} ks`}
                   </li>
                 );
               })}

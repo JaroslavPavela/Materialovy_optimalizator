@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { partColors, placedPartPaths, ringPath } from '../core/export/svg.ts';
 import { labelSize } from '../core/placed.ts';
 import type { Part, Sheet, SheetLayout, SheetMetrics } from '../core/model.ts';
+import { sheetNumbersText } from '../core/sheet-groups.ts';
 import { useAppStore } from '../state/store.ts';
 import { formatNumber, formatPercent } from './format.ts';
+import { useSheetGroups } from './useSheetGroups.ts';
 
 /** Výřez SVG v souřadnicích zobrazení (mm, osa Y dolů). */
 interface View {
@@ -208,8 +210,10 @@ const MAX_TABS = 12;
 export function PlanView() {
   const result = useAppStore((s) => s.result);
   const input = useAppStore((s) => s.resultInput);
-  const active = useAppStore((s) => s.activeSheet);
   const setActive = useAppStore((s) => s.setActiveSheet);
+  const grouped = useAppStore((s) => s.groupSheets);
+  const setGrouped = useAppStore((s) => s.setGroupSheets);
+  const { groups, active: index } = useSheetGroups();
 
   if (!result || !input) {
     return (
@@ -226,36 +230,59 @@ export function PlanView() {
     );
   }
 
-  const count = result.layouts.length;
-  const index = Math.min(active, count - 1);
-  const layout = result.layouts[index]!;
+  const count = groups.length;
+  const layoutIndex = groups[index]!.indices[0]!;
+  const layout = result.layouts[layoutIndex]!;
   const sheetName = new Map(input.sheets.map((s) => [s.id, s.name]));
   const sheet = input.sheets.find((s) => s.id === layout.sheetId);
-  const title = (i: number) => {
-    const l = result.layouts[i]!;
-    const u = result.metrics.sheets[i]?.utilization ?? 0;
+  const select = (g: number) => setActive(groups[g]!.indices[0]!);
+  const title = (g: number) => {
+    const { indices } = groups[g]!;
+    const l = result.layouts[indices[0]!]!;
+    const u = result.metrics.sheets[indices[0]!]?.utilization ?? 0;
     return {
-      name: `${i + 1}. ${sheetName.get(l.sheetId) ?? l.sheetId}`,
+      name: `${g + 1}. ${sheetName.get(l.sheetId) ?? l.sheetId}`,
       detail: `(${l.placements.length} ks, ${formatPercent(u)})`,
+      copies: indices.length > 1 ? `× ${indices.length}` : '',
+      numbers: indices.length > 1 ? `tabule ${sheetNumbersText(indices)}` : undefined,
     };
   };
 
   return (
     <section className="panel plan">
+      {result.layouts.length > 1 && (
+        <div className="plan-toolbar">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={grouped}
+              onChange={(e) => setGrouped(e.target.checked)}
+            />{' '}
+            Seskupit stejné tabule
+          </label>
+          <span className="muted">
+            {grouped && count < result.layouts.length
+              ? `${result.layouts.length} tabulí, různých: ${count}`
+              : `${result.layouts.length} tabulí`}
+          </span>
+        </div>
+      )}
       {count <= MAX_TABS ? (
         <div className="sheet-tabs" role="tablist" aria-label="Tabule">
-          {result.layouts.map((_, i) => {
-            const t = title(i);
+          {groups.map((_, g) => {
+            const t = title(g);
             return (
               <button
-                key={i}
+                key={g}
                 type="button"
                 role="tab"
-                aria-selected={i === index}
-                className={i === index ? 'active' : ''}
-                onClick={() => setActive(i)}
+                aria-selected={g === index}
+                className={g === index ? 'active' : ''}
+                title={t.numbers}
+                onClick={() => select(g)}
               >
                 {t.name} <span className="muted">{t.detail}</span>
+                {t.copies && <strong className="copies"> {t.copies}</strong>}
               </button>
             );
           })}
@@ -266,20 +293,20 @@ export function PlanView() {
             type="button"
             aria-label="Předchozí tabule"
             disabled={index === 0}
-            onClick={() => setActive(index - 1)}
+            onClick={() => select(index - 1)}
           >
             ‹
           </button>
           <select
             aria-label="Tabule"
             value={index}
-            onChange={(e) => setActive(Number(e.target.value))}
+            onChange={(e) => select(Number(e.target.value))}
           >
-            {result.layouts.map((_, i) => {
-              const t = title(i);
+            {groups.map((_, g) => {
+              const t = title(g);
               return (
-                <option key={i} value={i}>
-                  {t.name} {t.detail}
+                <option key={g} value={g}>
+                  {t.name} {t.detail} {t.copies}
                 </option>
               );
             })}
@@ -288,19 +315,24 @@ export function PlanView() {
             type="button"
             aria-label="Další tabule"
             disabled={index === count - 1}
-            onClick={() => setActive(index + 1)}
+            onClick={() => select(index + 1)}
           >
             ›
           </button>
-          <span className="muted">z {count} tabulí</span>
+          <span className="muted">z {count}</span>
         </div>
+      )}
+      {groups[index]!.indices.length > 1 && (
+        <p className="muted copies-note" role="status">
+          Tato tabule se opakuje {groups[index]!.indices.length}× ({title(index).numbers}).
+        </p>
       )}
       {sheet ? (
         <SheetSvg
-          key={`${index}-${sheet.id}`}
+          key={`${layoutIndex}-${sheet.id}`}
           sheet={sheet}
           layout={layout}
-          metrics={result.metrics.sheets[index]}
+          metrics={result.metrics.sheets[layoutIndex]}
           parts={input.parts}
         />
       ) : (

@@ -64,7 +64,10 @@ export interface AppState {
   readonly stopped: boolean;
   readonly issues: readonly InputIssue[];
   readonly error: string | null;
+  /** Index zobrazené tabule v `result.layouts`. */
   readonly activeSheet: number;
+  /** Shodné tabule výsledku zobrazit a exportovat jednou s počtem opakování. */
+  readonly groupSheets: boolean;
 }
 
 export interface AppActions {
@@ -109,6 +112,7 @@ export interface AppActions {
   calculate(): Promise<void>;
   stop(): Promise<void>;
   setActiveSheet(index: number): void;
+  setGroupSheets(grouped: boolean): void;
 }
 
 /** Částečná změna objektu; hodnota `undefined` pole odstraní. */
@@ -159,6 +163,7 @@ const initialState: AppState = {
   issues: [],
   error: null,
   activeSheet: 0,
+  groupSheets: true,
 };
 
 /** Stav, který se při načtení jiného projektu vrátí na začátek. */
@@ -459,6 +464,10 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   setActiveSheet(index) {
     set({ activeSheet: index });
+  },
+
+  setGroupSheets(grouped) {
+    set({ groupSheets: grouped });
   },
 }));
 

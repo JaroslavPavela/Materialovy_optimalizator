@@ -2,6 +2,7 @@ import { bulgeToArc } from '../geometry/contour.ts';
 import type { Contour, Rect, Ring } from '../geometry/types.ts';
 import type { NestingInput, NestingResult, Part, Sheet, SheetLayout } from '../model.ts';
 import { labelSize, placedContours, placePart, type PlacedPart } from '../placed.ts';
+import { singleSheetGroups, type SheetGroup } from '../sheet-groups.ts';
 import { sheetFileName, type ExportFile } from './files.ts';
 
 /** Barva dílu podle pořadí v zadání – zlatý úhel rozprostře odstíny rovnoměrně. */
@@ -179,19 +180,25 @@ export function writeSheetSvg(
   return out.join('\n');
 }
 
-/** Všechny tabule výsledku jako SVG soubory (zbytky vyznačené). */
+/**
+ * Všechny tabule výsledku jako SVG – jeden soubor na tabuli, nebo na skupinu
+ * shodných tabulí (`groups`; název souboru pak nese počet, např. `-4x`).
+ */
 export function writeResultSvg(
   input: NestingInput,
   result: NestingResult,
   project: string,
+  groups: readonly SheetGroup[] = singleSheetGroups(result),
 ): ExportFile[] {
   const sheets = new Map(input.sheets.map((s) => [s.id, s]));
   const colors = partColors(input.parts);
-  return result.layouts.map((layout, i) => {
+  return groups.map((group, g) => {
+    const i = group.indices[0]!;
+    const layout = result.layouts[i]!;
     const sheet = sheets.get(layout.sheetId);
     if (!sheet) throw new RangeError(`Rozložení odkazuje na neznámou tabuli „${layout.sheetId}".`);
     return {
-      name: sheetFileName(project, i, result.layouts.length, 'svg'),
+      name: sheetFileName(project, g, groups.length, 'svg', group.indices.length),
       content: `<?xml version="1.0" encoding="UTF-8"?>\n${writeSheetSvg(
         sheet,
         layout,

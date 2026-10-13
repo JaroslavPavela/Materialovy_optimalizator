@@ -55,9 +55,14 @@ ani zvláštní hlavičky (SharedArrayBuffer se nepoužívá).
    rotace, režim skládání a u tvarového režimu časový limit.
 4. **Vypočítat** – plán se zobrazí po tabulích (kolečko myši přibližuje,
    tažením se plán posouvá). Výpočet lze kdykoli zastavit a použít nejlepší
-   dosavadní plán.
+   dosavadní plán. Volba _Seskupit stejné tabule_ (výchozí zapnuto) ukáže
+   tabule se shodným rozmístěním jednou s počtem opakování (např. „× 10“);
+   po vypnutí se vypíše každá tabule zvlášť.
 5. **Export** – DXF jedné tabule nebo všech (ZIP), SVG, CSV seznam dílů,
-   tisk / PDF (A4 nebo A3 na šířku, jedna tabule na stránku). Nevyužité
+   tisk / PDF (A4 nebo A3 na šířku, jedna tabule na stránku). Při seskupení
+   se stejné tabule exportují jednou: počet opakování je v názvu souboru
+   (`…-tabule-01-10x.dxf`), v CSV ve sloupcích _opakování_ a _počet celkem_
+   a v tisku v záhlaví stránky. Nevyužité
    zbytky tabulí lze uložit do skladu – při dalším výpočtu se použijí
    přednostně.
 

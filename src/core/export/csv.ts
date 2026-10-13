@@ -5,6 +5,7 @@ import {
   type NestingResult,
   type UnplacedReason,
 } from '../model.ts';
+import type { SheetGroup } from '../sheet-groups.ts';
 
 /** Hlavička výstupního CSV. */
 export const RESULT_CSV_HEADER = [
@@ -12,6 +13,19 @@ export const RESULT_CSV_HEADER = [
   'formát',
   'díl',
   'počet',
+  'šířka',
+  'výška',
+  'rotace',
+] as const;
+
+/** Hlavička výstupního CSV se seskupenými shodnými tabulemi. */
+export const GROUPED_CSV_HEADER = [
+  'tabule',
+  'opakování',
+  'formát',
+  'díl',
+  'počet na tabuli',
+  'počet celkem',
   'šířka',
   'výška',
   'rotace',
@@ -48,37 +62,56 @@ const row = (cells: readonly string[]) => cells.join(SEP);
  * Seznam umístěných dílů po tabulích (díly se stejným natočením sečtené),
  * pak prázdný řádek, souhrnný řádek a neumístěné díly s důvodem.
  * UTF-8 s BOM, středník, desetinná čárka, CRLF – otevře se v českém Excelu.
+ *
+ * Se skupinami shodných tabulí (`groups`, viz sheet-groups.ts) se každá
+ * skupina vypíše jednou: číslo skupiny, kolikrát se tabule opakuje, počet
+ * kusů na jedné tabuli a celkem.
  */
-export function writeResultCsv(input: NestingInput, result: NestingResult): string {
+export function writeResultCsv(
+  input: NestingInput,
+  result: NestingResult,
+  groups?: readonly SheetGroup[],
+): string {
   const parts = new Map(input.parts.map((p) => [p.id, p]));
   const sheets = new Map(input.sheets.map((s) => [s.id, s]));
-  const lines: string[] = [row(RESULT_CSV_HEADER)];
+  const header: readonly string[] = groups ? GROUPED_CSV_HEADER : RESULT_CSV_HEADER;
+  // Řádky souhrnu a neumístěných dílů doplněné na šířku hlavičky.
+  const padded = (cells: readonly string[]) =>
+    row([...cells, ...Array<string>(Math.max(0, header.length - cells.length)).fill('')]);
+  const lines: string[] = [row(header)];
 
-  result.layouts.forEach((layout, i) => {
+  const blocks = groups ?? result.layouts.map((_, i) => ({ indices: [i] }));
+  blocks.forEach((block, b) => {
+    const i = block.indices[0]!;
+    const layout = result.layouts[i]!;
+    const copies = block.indices.length;
     const sheet = sheets.get(layout.sheetId);
     if (!sheet) throw new RangeError(`Rozložení odkazuje na neznámou tabuli „${layout.sheetId}".`);
     // Pořadí dílů podle prvního výskytu na tabuli.
-    const groups = new Map<string, { partId: string; rotation: number; count: number }>();
+    const counts = new Map<string, { partId: string; rotation: number; count: number }>();
     for (const p of layout.placements) {
       const rotation = normalizeRotation(p.rotation);
       const key = `${p.partId}\u0000${rotation.toFixed(6)}`;
-      const g = groups.get(key);
+      const g = counts.get(key);
       if (g) g.count++;
-      else groups.set(key, { partId: p.partId, rotation, count: 1 });
+      else counts.set(key, { partId: p.partId, rotation, count: 1 });
     }
-    for (const g of groups.values()) {
+    for (const g of counts.values()) {
       const part = parts.get(g.partId);
       if (!part) throw new RangeError(`Umístění odkazuje na neznámý díl „${g.partId}".`);
+      const size = [csvNumber(part.width), csvNumber(part.height), csvNumber(g.rotation)];
       lines.push(
-        row([
-          String(i + 1),
-          csvText(sheet.name),
-          csvText(part.name),
-          String(g.count),
-          csvNumber(part.width),
-          csvNumber(part.height),
-          csvNumber(g.rotation),
-        ]),
+        groups
+          ? row([
+              String(b + 1),
+              String(copies),
+              csvText(sheet.name),
+              csvText(part.name),
+              String(g.count),
+              String(g.count * copies),
+              ...size,
+            ])
+          : row([String(i + 1), csvText(sheet.name), csvText(part.name), String(g.count), ...size]),
       );
     }
   });
@@ -86,38 +119,45 @@ export function writeResultCsv(input: NestingInput, result: NestingResult): stri
   const m = result.metrics;
   lines.push(
     '',
-    row(['souhrn', 'tabulí', 'využití', 'umístěno', 'neumístěno', 'odpad', '']),
-    row([
+    padded([
+      'souhrn',
+      'tabulí',
+      'využití',
+      'umístěno',
+      'neumístěno',
+      'odpad',
+      ...(groups ? ['různých tabulí'] : []),
+    ]),
+    padded([
       '',
       String(result.layouts.length),
       csvPercent(m.utilization),
       String(m.placedCount),
       String(m.unplacedCount),
       csvPercent(m.waste),
-      '',
+      ...(groups ? [String(groups.length)] : []),
     ]),
   );
 
   if (result.unplaced.length > 0) {
-    const groups = new Map<string, { partId: string; reason: UnplacedReason; count: number }>();
+    const reasons = new Map<string, { partId: string; reason: UnplacedReason; count: number }>();
     for (const u of result.unplaced) {
       const key = `${u.partId}\u0000${u.reason}`;
-      const g = groups.get(key);
+      const g = reasons.get(key);
       if (g) g.count++;
-      else groups.set(key, { partId: u.partId, reason: u.reason, count: 1 });
+      else reasons.set(key, { partId: u.partId, reason: u.reason, count: 1 });
     }
-    lines.push('', row(['neumístěno', 'důvod', 'díl', 'počet', 'šířka', 'výška', '']));
-    for (const g of groups.values()) {
+    lines.push('', padded(['neumístěno', 'důvod', 'díl', 'počet', 'šířka', 'výška']));
+    for (const g of reasons.values()) {
       const part = parts.get(g.partId);
       lines.push(
-        row([
+        padded([
           '',
           csvText(UNPLACED_REASON_LABEL[g.reason]),
           csvText(part?.name ?? g.partId),
           String(g.count),
           part ? csvNumber(part.width) : '',
           part ? csvNumber(part.height) : '',
-          '',
         ]),
       );
     }

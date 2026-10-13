@@ -17,10 +17,20 @@ export function safeFileStem(project: string): string {
   );
 }
 
-/** `<projekt>-tabule-01.<ext>`; číslo doplněné nulami podle počtu tabulí. */
-export function sheetFileName(project: string, index: number, count: number, ext: string): string {
+/**
+ * `<projekt>-tabule-01.<ext>`; číslo doplněné nulami podle počtu tabulí.
+ * Opakuje-li se tabule (`copies` > 1), přidá počet: `…-tabule-01-4x.<ext>`.
+ */
+export function sheetFileName(
+  project: string,
+  index: number,
+  count: number,
+  ext: string,
+  copies = 1,
+): string {
   const digits = Math.max(2, String(count).length);
-  return `${safeFileStem(project)}-tabule-${String(index + 1).padStart(digits, '0')}.${ext}`;
+  const repeat = copies > 1 ? `-${copies}x` : '';
+  return `${safeFileStem(project)}-tabule-${String(index + 1).padStart(digits, '0')}${repeat}.${ext}`;
 }
 
 /** Soubory zabalené do ZIP (fflate). */

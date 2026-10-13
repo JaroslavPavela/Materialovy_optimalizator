@@ -7,6 +7,7 @@ import { partColors, writeResultSvg, writeSheetSvg } from '../core/export/svg.ts
 import { useAppStore } from '../state/store.ts';
 import { download } from './download.ts';
 import { PrintView, type PaperSize } from './PrintView.tsx';
+import { useSheetGroups } from './useSheetGroups.ts';
 
 /** Výchozí název projektu v názvech exportovaných souborů. */
 const PROJECT = 'narezovy-plan';
@@ -19,24 +20,29 @@ const CSV_TYPE = 'text/csv;charset=utf-8';
 export function ExportPanel() {
   const result = useAppStore((s) => s.result);
   const input = useAppStore((s) => s.resultInput);
-  const active = useAppStore((s) => s.activeSheet);
+  const grouped = useAppStore((s) => s.groupSheets);
+  const { groups, active: index } = useSheetGroups();
   const running = useAppStore((s) => s.status === 'running');
   const [paper, setPaper] = useState<PaperSize>('A4');
   const [printDate, setPrintDate] = useState<Date | null>(null);
   if (!result || !input || result.layouts.length === 0) return null;
 
-  const count = result.layouts.length;
-  const index = Math.min(active, count - 1);
-  const layout = result.layouts[index]!;
+  // Číslování a soubory po skupinách; bez seskupení je každá tabule skupinou.
+  const count = groups.length;
+  const layoutIndex = groups[index]!.indices[0]!;
+  const copies = groups[index]!.indices.length;
+  const layout = result.layouts[layoutIndex]!;
   const sheet = input.sheets.find((s) => s.id === layout.sheetId);
+  const remnant = result.metrics.sheets[layoutIndex]?.remnant ?? null;
+  // Seskupený CSV a tisk jen tehdy, když se nějaká tabule opakuje.
+  const repeated = grouped && count < result.layouts.length ? groups : undefined;
+  const sheetLabel = `tabule ${index + 1}${copies > 1 ? ` (× ${copies})` : ''}`;
 
   const exportDxf = () => {
     if (!sheet) return;
     download(
-      sheetFileName(PROJECT, index, count, 'dxf'),
-      writeSheetDxf(sheet, layout, input.parts, {
-        remnant: result.metrics.sheets[index]?.remnant ?? null,
-      }),
+      sheetFileName(PROJECT, index, count, 'dxf', copies),
+      writeSheetDxf(sheet, layout, input.parts, { remnant }),
       DXF_TYPE,
     );
   };
@@ -44,10 +50,10 @@ export function ExportPanel() {
     if (!sheet) return;
     const svg = writeSheetSvg(sheet, layout, input.parts, {
       colors: partColors(input.parts),
-      remnant: result.metrics.sheets[index]?.remnant ?? null,
+      remnant,
     });
     download(
-      sheetFileName(PROJECT, index, count, 'svg'),
+      sheetFileName(PROJECT, index, count, 'svg', copies),
       `<?xml version="1.0" encoding="UTF-8"?>\n${svg}\n`,
       SVG_TYPE,
     );
@@ -64,7 +70,7 @@ export function ExportPanel() {
       <h2>Export</h2>
       <div className="row">
         <button type="button" disabled={running || !sheet} onClick={exportDxf}>
-          DXF tabule {index + 1}
+          DXF {sheetLabel}
         </button>
         <button
           type="button"
@@ -72,7 +78,7 @@ export function ExportPanel() {
           onClick={() =>
             download(
               `${PROJECT}-dxf.zip`,
-              zipFiles(writeResultDxf(input, result, PROJECT)),
+              zipFiles(writeResultDxf(input, result, PROJECT, {}, groups)),
               ZIP_TYPE,
             )
           }
@@ -82,7 +88,7 @@ export function ExportPanel() {
       </div>
       <div className="row">
         <button type="button" disabled={running || !sheet} onClick={exportSvg}>
-          SVG tabule {index + 1}
+          SVG {sheetLabel}
         </button>
         <button
           type="button"
@@ -90,7 +96,7 @@ export function ExportPanel() {
           onClick={() =>
             download(
               `${PROJECT}-svg.zip`,
-              zipFiles(writeResultSvg(input, result, PROJECT)),
+              zipFiles(writeResultSvg(input, result, PROJECT, groups)),
               ZIP_TYPE,
             )
           }
@@ -103,7 +109,11 @@ export function ExportPanel() {
           type="button"
           disabled={running}
           onClick={() =>
-            download(`${safeFileStem(PROJECT)}-dily.csv`, writeResultCsv(input, result), CSV_TYPE)
+            download(
+              `${safeFileStem(PROJECT)}-dily.csv`,
+              writeResultCsv(input, result, repeated),
+              CSV_TYPE,
+            )
           }
         >
           CSV seznam dílů
@@ -125,8 +135,12 @@ export function ExportPanel() {
       <p className="muted hint">
         DXF R12 v mm: vrstvy TABULE, DILY, OTVORY, POPISKY; oblouky zůstávají oblouky. PDF vytvoříte
         tiskem do PDF.
+        {repeated &&
+          ' Stejné tabule se exportují jednou, počet opakování je v názvu souboru (např. -4x).'}
       </p>
-      {printDate && <PrintView input={input} result={result} paper={paper} date={printDate} />}
+      {printDate && (
+        <PrintView input={input} result={result} groups={repeated} paper={paper} date={printDate} />
+      )}
     </section>
   );
 }

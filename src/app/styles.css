@@ -370,6 +370,29 @@ table.parts input.num {
   color: #dbeafe;
 }
 
+.plan-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.plan-toolbar .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+}
+
+.sheet-tabs .copies {
+  font-weight: 700;
+}
+
+.plan .copies-note {
+  margin: 0 0 0.5rem;
+}
+
 .plan-canvas {
   position: relative;
 }
