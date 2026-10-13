@@ -479,3 +479,5 @@ BLOKOVÁNO: ne
   až 3 s bez předání řízení). `holeInnerFit` vrátí prázdno bez výpočtu, je-li
   díl širší nebo vyšší než otvor (booleovské operace nechávaly falešné pruhy,
   které pak zamítala až pojistka kandidátů).
+- Po fázi 7: uživatel nastavil remote `origin` (GitHub) a větev `main`
+  je odeslaná a sleduje `origin/main`.
