@@ -142,7 +142,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: chore: finální kontrola (krok 7.3)
+Poslední commit: fix: opravy z revize kroku 7.1 – zjednodušení oblouků, cache důvodů neumístění, IFP otvoru (krok 7.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
