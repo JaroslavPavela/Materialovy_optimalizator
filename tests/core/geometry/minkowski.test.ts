@@ -177,5 +177,19 @@ describe('IFP otvoru a konvexní obal', () => {
     expect(inside({ x: 5, y: 50 }, lIfp)).toBe(true);
     expect(inside({ x: 50, y: 50 }, lIfp)).toBe(false);
     expect(holeInnerFit(sq(0, 0, 10), sq(0, 0, 20))).toEqual([]);
+    // Širší, ale nižší díl než otvor (dřív zbyl falešný pruh šířky jednotek Clipperu).
+    const wide: Ring = [
+      { x: 0, y: 0 },
+      { x: 108.5, y: 0 },
+      { x: 108.5, y: 20 },
+      { x: 0, y: 20 },
+    ];
+    const tall: Ring = [
+      { x: 0, y: 0 },
+      { x: 24.5, y: 0 },
+      { x: 24.5, y: 65.5 },
+      { x: 0, y: 65.5 },
+    ];
+    expect(holeInnerFit(tall.toReversed(), wide)).toEqual([]);
   });
 });

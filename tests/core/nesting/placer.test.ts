@@ -220,6 +220,20 @@ describe('regrese z revize placeru', () => {
   );
 });
 
+describe('důvody neumístění', () => {
+  it('počítají se jednou na kontext (cache pro všechna vyhodnocení GA)', () => {
+    const inp = input([rect('a', 100, 100), rect('b', 2000, 100, { rotation: 'locked' })]);
+    const ctx = new ShapeContext(inp);
+    const first = placeShapes(ctx, defaultShapeOrder(inp));
+    expect(first.unplaced.map((u) => u.reason)).toEqual(['too-large']);
+    expect(ctx.unplaceable.get('a')).toBeNull();
+    expect(ctx.unplaceable.get('b')).toBe('too-large');
+    const misses = ctx.nfps.misses;
+    placeShapes(ctx, defaultShapeOrder(inp));
+    expect(ctx.nfps.misses).toBe(misses);
+  });
+});
+
 describe('pojistka ověření kandidáta', () => {
   it('zamítne překryv rohem (0,5 mm), pustí dotyk a převis v toleranci skládání', () => {
     const inp = input([rect('a', 100, 100, { rotation: 'locked' })], [sheet()], 0);

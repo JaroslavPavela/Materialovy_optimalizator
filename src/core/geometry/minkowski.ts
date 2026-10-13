@@ -3,7 +3,8 @@ import {
   minkowskiSum as clipperMinkowskiSum,
   unionPolygons,
 } from './clipper.ts';
-import { orientRing, ringSignedArea } from './polygon.ts';
+import { EPS } from './eps.ts';
+import { orientRing, ringBBox, ringSignedArea } from './polygon.ts';
 import type { Point, Polygon, Ring } from './types.ts';
 
 const cross = (o: Point, a: Point, b: Point) =>
@@ -236,9 +237,15 @@ export function holeInnerFit(
   b: Ring,
   forbidden: (polys: Polygon[]) => Polygon[] = (p) => p,
 ): Polygon[] {
+  if (hole.length < 3) return [];
+  // B širší nebo vyšší než otvor se nevejde – bez výpočtu (booleovské operace
+  // by jinak nechaly falešné pruhy šířky jednotek Clipperu).
+  const hb = ringBBox(hole);
+  const bb = ringBBox(b);
+  if (bb.width > hb.width + EPS || bb.height > hb.height + EPS) return [];
   const neg = b.map((p) => ({ x: -p.x, y: -p.y }));
   const pieces = convexDecomposition(neg);
-  if (!pieces || hole.length < 3) return [];
+  if (!pieces) return [];
   const sweeps: Polygon[] = [];
   for (let i = 0; i < hole.length; i++) {
     const p = hole[i]!;

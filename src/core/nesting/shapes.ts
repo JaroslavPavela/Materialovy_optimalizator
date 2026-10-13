@@ -150,8 +150,10 @@ function isConvexRing(ring: Ring): boolean {
  * odchylku s ostrými rohy – každý bod původní hranice leží do této
  * odchylky od zjednodušené, takže výsledek původní tvar vždy obsahuje.
  * Konvexní obrys se nemění (Minkowského součet je jeden kus bez ohledu na
- * počet vrcholů) a zjednodušení, které limitu nedosáhne ani při
- * MAX_SIMPLIFY, se nepoužije – jen by zvětšilo rozestup.
+ * počet vrcholů). Když limitu nedosáhne ani MAX_SIMPLIFY, použije se
+ * zjednodušení jen tehdy, ubere-li aspoň čtvrtinu vrcholů (dlouhé oblouky
+ * tvaru C: 311 → 184 vrcholů, placer 4× rychleji) – jinak by jen zvětšilo
+ * rozestup.
  */
 export function boundComplexity(poly: Polygon, maxVertices = MAX_NEST_VERTICES): Polygon {
   if (poly.outer.length <= maxVertices || isConvexRing(poly.outer)) return poly;
@@ -161,7 +163,7 @@ export function boundComplexity(poly: Polygon, maxVertices = MAX_NEST_VERTICES):
     const s = simplifyRingWithError(poly.outer, tol);
     if (s.ring.length > maxVertices) {
       if (tol < MAX_SIMPLIFY) continue;
-      return poly;
+      if (s.ring.length > 0.75 * poly.outer.length) return poly;
     }
     const grown = offsetPolygons([{ outer: s.ring, holes: poly.holes }], s.error);
     if (grown.length === 0) return poly;

@@ -260,4 +260,20 @@ describe('omezení počtu vrcholů (boundComplexity)', () => {
     // Přírůstek plochy jen o odchylku zjednodušení po obvodu (1200 mm × 0,05 mm).
     expect(polygonsArea([b]) - polygonsArea([noisy])).toBeLessThan(1200 * 0.05);
   });
+
+  it('dlouhé oblouky (tvar C): zjednodušení na mezi se použije, ubere-li čtvrtinu vrcholů', () => {
+    // Mezikruží 3/4 kruhu R 400 / 360, oblouky hustě navzorkované (tětiva ~0,01 mm).
+    const arc = (r: number, from: number, to: number, n: number): Point[] =>
+      Array.from({ length: n + 1 }, (_, i) => {
+        const a = from + ((to - from) * i) / n;
+        return { x: r * Math.cos(a), y: r * Math.sin(a) };
+      });
+    const outer = [...arc(400, 0, 1.5 * Math.PI, 200), ...arc(360, 1.5 * Math.PI, 0, 180)];
+    const c = { outer, holes: [] };
+    const b = boundComplexity(c);
+    expect(b.outer.length).toBeLessThanOrEqual(0.75 * outer.length);
+    expect(
+      outer.every((p) => pointInRing(p, b.outer) || pointRingDistance(p, b.outer) < 1e-6),
+    ).toBe(true);
+  });
 });

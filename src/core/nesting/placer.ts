@@ -42,6 +42,8 @@ export class ShapeContext {
   readonly input: NestingInput;
   readonly shapes: ShapeCache;
   readonly nfps: NfpCache;
+  /** Důvody neumístění podle dílu (`null` = vejde se na prázdnou tabuli). */
+  readonly unplaceable = new Map<string, UnplacedReason | null>();
   private readonly zones = new Map<string, Polygon[]>();
   private readonly shrunkZones = new Map<
     string,
@@ -177,7 +179,9 @@ export class ShapeSheet {
   /**
    * Totéž jako `find` po krocích: předá řízení po každém natočení a po dávkách
    * překážek, aby šel výpočet ve workeru zastavit i u prvního kusu nového tvaru
-   * (desítky nových NFP a odečtení stovek překážek).
+   * (desítky nových NFP a odečtení stovek překážek). Mezi kroky se na
+   * stejné tabuli nesmí volat `place` – kandidáti by nebyli ověřeni
+   * přípustnou oblastí nového dílu (zachytila by je jen pojistka `fits`).
    */
   *findSteps(part: Part, rotations: readonly number[]): Generator<void, Candidate | null, void> {
     const { shapes, nfps, input } = this.ctx;
@@ -346,6 +350,32 @@ function* fillSheet(
 
 /** Proč se díl nevejde na žádnou prázdnou vhodnou tabuli; `null` = vejde se. */
 export function shapeUnplaceableReason(ctx: ShapeContext, part: Part): UnplacedReason | null {
+  const steps = unplaceableReasonSteps(ctx, part);
+  for (;;) {
+    const next = steps.next();
+    if (next.done) return next.value;
+  }
+}
+
+/**
+ * Totéž po krocích s cache v kontextu (důvod závisí jen na vstupu) – každé
+ * vyhodnocení GA se ptá na všechny díly znovu.
+ */
+function* unplaceableReasonSteps(
+  ctx: ShapeContext,
+  part: Part,
+): Generator<void, UnplacedReason | null, void> {
+  const cached = ctx.unplaceable.get(part.id);
+  if (cached !== undefined) return cached;
+  const reason = yield* computeUnplaceableReason(ctx, part);
+  ctx.unplaceable.set(part.id, reason);
+  return reason;
+}
+
+function* computeUnplaceableReason(
+  ctx: ShapeContext,
+  part: Part,
+): Generator<void, UnplacedReason | null, void> {
   const matchingAny = ctx.input.sheets.filter((s) => sheetMatchesPart(part, s));
   if (matchingAny.length === 0) return 'no-matching-sheet';
   const matching = matchingAny.filter((s) => s.stock !== 0);
@@ -356,8 +386,10 @@ export function shapeUnplaceableReason(ctx: ShapeContext, part: Part): UnplacedR
     rotations.some((r) => ifpRect(usableRect(s, spacing), ctx.shapes.at(part, r).outer)),
   );
   if (sizeOk.length === 0) return 'too-large';
-  const fits = sizeOk.some((s) => new ShapeSheet(ctx, s).find(part, rotations) !== null);
-  return fits ? null : 'blocked';
+  for (const s of sizeOk) {
+    if ((yield* new ShapeSheet(ctx, s).findSteps(part, rotations)) !== null) return null;
+  }
+  return 'blocked';
 }
 
 /**
@@ -384,14 +416,9 @@ export function* placeShapesSteps(
 ): Generator<void, ShapeResult, void> {
   const { sheets } = ctx.input;
   const unplaced: UnplacedPart[] = [];
-  const reasons = new Map<string, UnplacedReason | null>();
   let remaining: ShapeItem[] = [];
   for (const item of items) {
-    let reason = reasons.get(item.part.id);
-    if (reason === undefined) {
-      reason = shapeUnplaceableReason(ctx, item.part);
-      reasons.set(item.part.id, reason);
-    }
+    const reason = yield* unplaceableReasonSteps(ctx, item.part);
     if (reason) unplaced.push({ partId: item.part.id, instance: item.instance, reason });
     else remaining.push(item);
   }

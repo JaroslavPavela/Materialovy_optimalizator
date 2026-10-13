@@ -471,3 +471,11 @@ BLOKOVÁNO: ne
   aby nepadal na časovém limitu pod zátěží. Push selhal – repozitář nemá
   nastavený remote („No configured push destination"); remote a první push
   musí udělat uživatel.
+- 7.1 (revize oprav): `boundComplexity` použije zjednodušení na mezi 0,2 mm
+  i bez dosažení 64 vrcholů, ubere-li aspoň čtvrtinu vrcholů (tvar C
+  s dlouhými oblouky byl po první opravě 4× pomalejší). Důvody neumístění
+  se cachují v `ShapeContext` a počítají po krocích (dřív se při každém
+  vyhodnocení GA synchronně hledala poloha na prázdné tabuli pro každý díl –
+  až 3 s bez předání řízení). `holeInnerFit` vrátí prázdno bez výpočtu, je-li
+  díl širší nebo vyšší než otvor (booleovské operace nechávaly falešné pruhy,
+  které pak zamítala až pojistka kandidátů).
