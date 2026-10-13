@@ -45,12 +45,13 @@ h2 {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(380px, 560px) minmax(0, 1fr);
+  /* Vstupy aspoň na šířku tabulky dílů bez posuvníku, zbytek sdílí s náhledem. */
+  grid-template-columns: minmax(660px, 2fr) minmax(0, 3fr);
   gap: 0.75rem;
   align-items: start;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;
   }
@@ -213,13 +214,19 @@ table.parts td {
   padding: 0.15rem 0.2rem;
 }
 
-table.parts td input:not(.num) {
+table.parts td input:not(.num, [type='checkbox']) {
   width: 100%;
-  min-width: 5rem;
+  min-width: 6rem;
 }
 
-table.parts .select {
-  width: 1.5rem;
+table.parts th.name {
+  width: 30%;
+}
+
+/* Sloupce s pevným obsahem jen na šířku obsahu – volné místo dostanou textová pole. */
+table.parts .select,
+table.parts .actions {
+  width: 1px;
   text-align: center;
 }
 
@@ -269,7 +276,7 @@ table.parts td.num-ro {
 }
 
 table.parts input.num {
-  width: 4.5rem;
+  width: 4rem;
 }
 
 .sheet-card {
@@ -297,9 +304,19 @@ table.parts input.num {
   color: var(--muted);
 }
 
-.grid input {
+.grid input,
+.grid select {
   color: #1f2328;
   width: 100%;
+}
+
+/* Při zalomeném popisku zůstanou pole v řádku zarovnaná. */
+.grid label > :last-child {
+  margin-top: auto;
+}
+
+.grid label.wide {
+  grid-column: span 2;
 }
 
 .zone-row {

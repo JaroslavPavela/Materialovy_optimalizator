@@ -71,14 +71,14 @@ export function PartsTable() {
                   onChange={() => setSelection(new Set(allSelected ? [] : parts.map((p) => p.id)))}
                 />
               </th>
-              <th>Název</th>
+              <th className="name">Název</th>
               <th>Šířka</th>
               <th>Výška</th>
               <th>Počet</th>
               <th>Rotace</th>
               <th>Materiál</th>
               <th>Tl.</th>
-              <th aria-label="Akce" />
+              <th className="actions" aria-label="Akce" />
             </tr>
           </thead>
           <tbody>
@@ -174,7 +174,7 @@ export function PartsTable() {
                     onCommit={(v) => updatePart(p.id, { thickness: v ?? undefined })}
                   />
                 </td>
-                <td>
+                <td className="actions">
                   <button
                     type="button"
                     className="icon"

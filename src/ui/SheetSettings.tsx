@@ -247,7 +247,7 @@ export function SheetSettings() {
               onCommit={(v) => v !== null && setParams({ freeRotationStep: v })}
             />
           </label>
-          <label>
+          <label className="wide">
             Režim skládání
             <select
               aria-label="Režim skládání"
