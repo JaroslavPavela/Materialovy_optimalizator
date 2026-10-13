@@ -218,6 +218,35 @@ table.parts td input:not(.num) {
   min-width: 5rem;
 }
 
+table.parts .select {
+  width: 1.5rem;
+  text-align: center;
+}
+
+table.parts tr.selected td {
+  background: #ddf4ff;
+}
+
+.bulk-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.bulk-edit .bulk-title {
+  font-weight: 600;
+}
+
+.bulk-edit input.num {
+  width: 4.5rem;
+}
+
+.bulk-edit input:not(.num) {
+  width: 7rem;
+}
+
 table.parts td.num-ro {
   text-align: right;
   padding-right: 0.5rem;

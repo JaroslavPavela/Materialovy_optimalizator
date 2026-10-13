@@ -64,6 +64,22 @@ describe('store', () => {
     expect(state().parts[0]).not.toHaveProperty('thickness');
   });
 
+  it('hromadná úprava a odebrání mění jen díly s danými ID', () => {
+    state().addPart();
+    state().addPart();
+    state().addPart();
+    const [a, b, c] = state().parts.map((p) => p.id);
+    state().updatePart(c!, { material: 'Plech' });
+    state().updateParts([a!, c!], { rotation: 'locked', thickness: 2 });
+    expect(state().parts.map((p) => p.rotation)).toEqual(['locked', 'ortho', 'locked']);
+    expect(state().parts[1]).not.toHaveProperty('thickness');
+    expect(state().parts[2]).toMatchObject({ material: 'Plech', thickness: 2 });
+    state().updateParts([a!, b!, c!], { material: undefined });
+    expect(state().parts.some((p) => 'material' in p)).toBe(false);
+    state().removeParts([a!, c!, 'neexistuje']);
+    expect(state().parts.map((p) => p.id)).toEqual([b]);
+  });
+
   it('zakázaná zóna se přidá, upraví a odebere', () => {
     const sheetId = state().sheets[0]!.id;
     state().addZone(sheetId);

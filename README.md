@@ -44,7 +44,10 @@ ani zvláštní hlavičky (SharedArrayBuffer se nepoužívá).
 1. **Díly** – přetáhněte soubory CSV nebo DXF do pole _Díly z CSV nebo DXF_
    (lze víc souborů najednou), nebo je přidejte ručně v tabulce dílů.
    CSV nahradí seznam dílů, díly z DXF se přidají. U každého dílu zadáte
-   počet kusů a povolené natočení.
+   počet kusů a povolené natočení. Řádek _Hromadně_ nad tabulkou nastaví
+   rotaci, počet, materiál nebo tloušťku všem dílům, nebo jen vybraným
+   (zaškrtávací pole, Shift + klik vybere rozsah); vyplněná pole se použijí,
+   prázdná zůstanou beze změny.
 2. **Tabule** – formáty tabulí (rozměr, počet skladem, okraj, materiál,
    tloušťka) a zakázané zóny (např. upínky). Formáty lze uložit do knihovny
    a použít v dalších projektech.

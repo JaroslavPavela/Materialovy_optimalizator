@@ -128,3 +128,51 @@ test('chybný CSV ukáže chyby s čísly řádků', async ({ page }) => {
   await expect(page.locator('.import-report .errors li').first()).toContainText(/řád/i);
   expect(errors).toEqual([]);
 });
+
+test('hromadná úprava: všechny díly, rozsah přes Shift, odebrání vybraných', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+
+  const add = page.getByRole('button', { name: '+ Přidat díl' });
+  for (let i = 0; i < 4; i++) await add.click();
+  const bulk = page.getByRole('form', { name: 'Hromadná úprava dílů' });
+  const apply = bulk.getByRole('button', { name: /^Použít na/ });
+
+  // Bez výběru se úprava týká všech dílů; Enter v poli formulář odešle.
+  await expect(apply).toHaveText('Použít na všechny (4)');
+  await expect(apply).toBeDisabled();
+  await bulk.getByLabel('Hromadně rotace').selectOption('flip');
+  await bulk.getByLabel('Hromadně materiál').fill('Nerez');
+  await bulk.getByLabel('Hromadně tloušťka').fill('1,5');
+  await bulk.getByLabel('Hromadně tloušťka').press('Enter');
+  for (let i = 1; i <= 4; i++) {
+    await expect(page.getByLabel(`Rotace dílu ${i}`)).toHaveValue('flip');
+    await expect(page.getByLabel(`Materiál dílu ${i}`)).toHaveValue('Nerez');
+    await expect(page.getByLabel(`Tloušťka dílu ${i}`)).toHaveValue('1,5');
+  }
+  await expect(bulk.getByLabel('Hromadně rotace')).toHaveValue('');
+  await expect(bulk.getByLabel('Hromadně tloušťka')).toHaveValue('');
+
+  // Výběr rozsahu 2–4 Shift + klikem, změna jen u vybraných.
+  await page.getByLabel('Vybrat díl 2').check();
+  await page.getByLabel('Vybrat díl 4').click({ modifiers: ['Shift'] });
+  await expect(page.getByLabel('Vybrat díl 3')).toBeChecked();
+  await expect(apply).toHaveText('Použít na vybrané (3)');
+  await bulk.getByLabel('Hromadně rotace').selectOption('locked');
+  await bulk.getByLabel('Hromadně počet').fill('5');
+  await apply.click();
+  await expect(page.getByLabel('Rotace dílu 1')).toHaveValue('flip');
+  await expect(page.getByLabel('Počet dílu 1')).toHaveValue('1');
+  for (let i = 2; i <= 4; i++) {
+    await expect(page.getByLabel(`Rotace dílu ${i}`)).toHaveValue('locked');
+    await expect(page.getByLabel(`Počet dílu ${i}`)).toHaveValue('5');
+  }
+
+  await bulk.getByRole('button', { name: 'Odebrat vybrané' }).click();
+  await expect(page.getByLabel('Rotace dílu 2')).toHaveCount(0);
+  await expect(page.getByLabel('Rotace dílu 1')).toHaveValue('flip');
+  await expect(page.getByLabel('Vybrat všechny díly')).not.toBeChecked();
+  await expect(apply).toHaveText('Použít na všechny (1)');
+
+  expect(errors).toEqual([]);
+});

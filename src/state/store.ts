@@ -95,6 +95,9 @@ export interface AppActions {
   /** Změna polí dílu; `undefined` volitelné pole smaže (materiál, tloušťka). */
   updatePart(id: string, patch: Patch<Part>): void;
   removePart(id: string): void;
+  /** Hromadná změna vlastností dílů s danými ID (ostatní díly se nemění). */
+  updateParts(ids: readonly string[], patch: BulkPartPatch): void;
+  removeParts(ids: readonly string[]): void;
   clearParts(): void;
   addSheet(): void;
   updateSheet(id: string, patch: Patch<Sheet>): void;
@@ -110,6 +113,12 @@ export interface AppActions {
 
 /** Částečná změna objektu; hodnota `undefined` pole odstraní. */
 export type Patch<T> = { [K in Exclude<keyof T, 'id'>]?: T[K] | undefined };
+
+/**
+ * Vlastnosti, které jde nastavit více dílům najednou. Rozměry ne – u tvarů
+ * z DXF plynou z obrysu a u obdélníků se hromadně nemění.
+ */
+export type BulkPartPatch = Patch<Pick<Part, 'quantity' | 'rotation' | 'material' | 'thickness'>>;
 
 function applyPatch<T extends object>(obj: T, patch: Patch<T>): T {
   const out = { ...obj } as Record<string, unknown>;
@@ -334,6 +343,16 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   removePart(id) {
     set((s) => ({ parts: s.parts.filter((p) => p.id !== id) }));
+  },
+
+  updateParts(ids, patch) {
+    const target = new Set(ids);
+    set((s) => ({ parts: s.parts.map((p) => (target.has(p.id) ? applyPatch(p, patch) : p)) }));
+  },
+
+  removeParts(ids) {
+    const target = new Set(ids);
+    set((s) => ({ parts: s.parts.filter((p) => !target.has(p.id)) }));
   },
 
   clearParts() {
