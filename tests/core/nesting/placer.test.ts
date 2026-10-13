@@ -233,6 +233,29 @@ describe('pojistka ověření kandidáta', () => {
     expect(s.fits(part, at(110 - SLACK, 10))).toBe(true);
     expect(s.fits(part, at(110 - 2 * EPS, 10))).toBe(false);
   });
+
+  it('zamítne i hrot zanořený jen o 2 µm (plocha průniku pod 1e-6 mm²)', () => {
+    // Kosočtverec 100 × 100 s hrotem dole v (50, 0).
+    const diamond: Part = {
+      ...rect('d', 100, 100, { rotation: 'locked' }),
+      shape: {
+        outer: [
+          { x: 50, y: 0, bulge: 0 },
+          { x: 100, y: 50, bulge: 0 },
+          { x: 50, y: 100, bulge: 0 },
+          { x: 0, y: 50, bulge: 0 },
+        ],
+        holes: [],
+      },
+    };
+    const inp = input([rect('a', 100, 100, { rotation: 'locked' }), diamond], [sheet()], 0);
+    const ctx = new ShapeContext(inp);
+    const s = new ShapeSheet(ctx, inp.sheets[0]!);
+    const at = (x: number, y: number) => ({ at: { x, y }, rotation: 0, bottom: y, left: x });
+    s.place(inp.parts[0]!, at(10, 10));
+    expect(s.fits(diamond, at(10, 110 - 0.002))).toBe(false);
+    expect(s.fits(diamond, at(10, 110 - SLACK))).toBe(true);
+  });
 });
 
 describe('díl v otvoru jiného dílu (6.1)', () => {

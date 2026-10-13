@@ -2,12 +2,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { contourArea } from '../../../src/core/geometry/contour.ts';
 import { partsFromDxf, type DxfPartsOptions } from '../../../src/core/import/dxf-parts.ts';
-import {
-  DEFAULT_NESTING_PARAMS,
-  validateNestingInput,
-  type Part,
-} from '../../../src/core/model.ts';
+import { DEFAULT_NESTING_PARAMS, type Part } from '../../../src/core/model.ts';
 import { partArea } from '../../../src/core/metrics.ts';
+import { validateNestingInput } from '../../../src/core/validate.ts';
 
 const dir = new URL('../../fixtures/dxf/', import.meta.url);
 const load = (name: string) => new Uint8Array(readFileSync(new URL(name, dir)));

@@ -16,7 +16,6 @@ import { EPS } from '../../../src/core/geometry/eps.ts';
 import type { Contour, Point } from '../../../src/core/geometry/types.ts';
 import {
   DEFAULT_NESTING_PARAMS,
-  validateNestingInput,
   type NestingInput,
   type Part,
   type Placement,
@@ -24,7 +23,10 @@ import {
   type SheetLayout,
 } from '../../../src/core/model.ts';
 import { nest } from '../../../src/core/nesting/nest.ts';
-import { placedContours } from '../../../src/core/placed.ts';
+import { contourToRing } from '../../../src/core/geometry/contour.ts';
+import { pointInRing } from '../../../src/core/geometry/polygon.ts';
+import { labelSize, placedContours, placePart } from '../../../src/core/placed.ts';
+import { validateNestingInput } from '../../../src/core/validate.ts';
 
 /** Tvar „D": obdélník s půlkruhem vpravo, kruhový otvor a otvor s obloukem. */
 const shaped: Part = {
@@ -189,6 +191,9 @@ describe('dxfText', () => {
     expect(dxfText('Bok 1')).toBe('Bok 1');
     expect(dxfText('Ž-č')).toBe('\\U+017D-\\U+010D');
     expect(dxfText('a\nb\tc')).toBe('a b c');
+    // %% zahajuje řídicí kód TEXT, \U+ znak Unicode – zapisují se doslova.
+    expect(dxfText('Díl %%u5')).toBe('D\\U+00EDl %%%%%%u5');
+    expect(dxfText('a\\b')).toBe('a\\U+005Cb');
   });
 });
 
@@ -254,7 +259,7 @@ describe('writeSheetDxf', () => {
     });
   });
 
-  it('popisky: TEXT s názvem dílu uprostřed, výška podle menšího rozměru', () => {
+  it('popisky: TEXT s názvem v materiálu dílu (mimo otvory), výška podle labelSize', () => {
     const labels = onLayer(parse(text).entities, 'POPISKY') as unknown as {
       text: string;
       textHeight: number;
@@ -265,8 +270,15 @@ describe('writeSheetDxf', () => {
     expect(labels).toHaveLength(4);
     expect(labels[0]!.text).toBe(dxfText('Příruba Ž'));
     expect(labels[0]).toMatchObject({ halign: 1, valign: 2 });
-    expectNear(labels[0]!.endPoint, { x: 10 + 55, y: 10 + 30 });
-    expect(labels[0]!.textHeight).toBeCloseTo(60 * 0.15, 6);
+    const placed0 = placePart(shaped, layout.placements[0]!);
+    expectNear(labels[0]!.endPoint, placed0.labelAt);
+    expect(labels[0]!.textHeight).toBeCloseTo(0.7 * labelSize(placed0), 5);
+    // Bod popisku leží v materiálu: uvnitř obrysu a mimo oba otvory.
+    const c = placedContours(shaped, layout.placements[0]!);
+    expect(pointInRing(placed0.labelAt, contourToRing(c.outer, 0.01))).toBe(true);
+    for (const h of c.holes) {
+      expect(pointInRing(placed0.labelAt, contourToRing(h, 0.01))).toBe(false);
+    }
     expect(labels[3]!.text).toBe('Bok');
 
     const bez = parse(writeSheetDxf(sheet, layout, [shaped, rect], { labels: false }));
@@ -508,5 +520,27 @@ describe('soubory a ZIP', () => {
     const unzipped = unzipSync(zipFiles(files, new Date('2026-01-01T00:00:00Z')));
     expect(Object.keys(unzipped)).toEqual(files.map((f) => f.name));
     files.forEach((f) => expect(strFromU8(unzipped[f.name]!)).toBe(f.content));
+  });
+});
+
+describe('zbytek v exportu DXF (revize 7.1)', () => {
+  it('writeResultDxf zapíše obrys zbytku na vrstvu ZBYTEK', () => {
+    const input: NestingInput = {
+      parts: [{ ...rect, quantity: 1 }],
+      sheets: [{ ...sheet, forbiddenZones: [] }],
+      params: DEFAULT_NESTING_PARAMS,
+    };
+    const outcome = nest(input);
+    if (!outcome.ok) throw new Error('výpočet selhal');
+    const remnant = outcome.result.metrics.sheets[0]!.remnant!;
+    const [file] = writeResultDxf(input, outcome.result, 'z');
+    const z = onLayer(parse(file!.content).entities, 'ZBYTEK');
+    expect(z).toHaveLength(1);
+    expectPolyline(z[0]!, [
+      { x: remnant.x, y: remnant.y, bulge: 0 },
+      { x: remnant.x + remnant.width, y: remnant.y, bulge: 0 },
+      { x: remnant.x + remnant.width, y: remnant.y + remnant.height, bulge: 0 },
+      { x: remnant.x, y: remnant.y + remnant.height, bulge: 0 },
+    ]);
   });
 });

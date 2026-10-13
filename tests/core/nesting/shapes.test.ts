@@ -10,9 +10,11 @@ import {
 import type { Contour, Point } from '../../../src/core/geometry/types.ts';
 import type { Part, Sheet } from '../../../src/core/model.ts';
 import {
+  boundComplexity,
   inflatedPartPolygon,
   inflatedZones,
   inflationDelta,
+  MAX_NEST_VERTICES,
   NEST_ARC_TOL,
   NEST_SIMPLIFY_TOL,
   partPolygon,
@@ -209,5 +211,53 @@ describe('nafouknutí natočených dílů', () => {
     // Jen násobky 90°: ostré rohy, obdélník přesně o s větší.
     const ortho = new ShapeCache(10, {}, 90).inflated(rect);
     expect(polygonsArea([ortho])).toBeCloseTo(110 * 60, 6);
+  });
+});
+
+describe('omezení počtu vrcholů (boundComplexity)', () => {
+  const ring = (n: number, r: (i: number) => number): Point[] =>
+    Array.from({ length: n }, (_, i) => {
+      const a = (2 * Math.PI * i) / n;
+      return { x: r(i) * Math.cos(a), y: r(i) * Math.sin(a) };
+    });
+
+  it('konvexní obrys s mnoha vrcholy se nemění', () => {
+    const circle = { outer: ring(174, () => 300), holes: [] };
+    expect(boundComplexity(circle)).toBe(circle);
+  });
+
+  it('když zjednodušení limitu nedosáhne, obrys se nemění (žádné zbytečné nafouknutí)', () => {
+    // Ozubení s hlubokými zuby: ani tolerance 0,2 mm počet vrcholů nesníží pod limit.
+    const gear = { outer: ring(160, (i) => (i % 2 === 0 ? 300 : 290)), holes: [] };
+    expect(boundComplexity(gear)).toBe(gear);
+  });
+
+  it('jemný šum se zjednoduší pod limit a výsledek původní tvar obsahuje', () => {
+    // Tvar L (nekonvexní), hrany hustě navzorkované s šumem 0,01 mm.
+    const corners: Point[] = [
+      { x: 0, y: 0 },
+      { x: 300, y: 0 },
+      { x: 300, y: 100 },
+      { x: 100, y: 100 },
+      { x: 100, y: 300 },
+      { x: 0, y: 300 },
+    ];
+    const outer: Point[] = [];
+    corners.forEach((a, k) => {
+      const b = corners[(k + 1) % corners.length]!;
+      for (let i = 0; i < 60; i++) {
+        const t = i / 60;
+        const e = i % 2 === 0 ? 0 : 0.01;
+        outer.push({ x: a.x + (b.x - a.x) * t + e, y: a.y + (b.y - a.y) * t + e });
+      }
+    });
+    const noisy = { outer, holes: [] };
+    const b = boundComplexity(noisy);
+    expect(b.outer.length).toBeLessThanOrEqual(MAX_NEST_VERTICES);
+    expect(
+      outer.every((p) => pointInRing(p, b.outer) || pointRingDistance(p, b.outer) < 1e-6),
+    ).toBe(true);
+    // Přírůstek plochy jen o odchylku zjednodušení po obvodu (1200 mm × 0,05 mm).
+    expect(polygonsArea([b]) - polygonsArea([noisy])).toBeLessThan(1200 * 0.05);
   });
 });

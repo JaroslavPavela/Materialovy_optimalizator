@@ -244,7 +244,12 @@ export function parsePartsCsv(
   const columns = new Map<ColumnKey, number>();
   let dataRecords = records;
   const headerKeys = first.cells.map(matchHeader);
-  if (headerKeys.some((k) => k !== null)) {
+  // Hlavička = aspoň dva poznané sloupce, nebo jeden a za ním nejsou čísla
+  // (soubor bez hlavičky, jehož první díl se jmenuje „Díl", „Popis"…).
+  const known = headerKeys.filter((k) => k !== null).length;
+  const numbersFollow =
+    first.cells.length >= 4 && first.cells.slice(1, 4).every((c) => parseNumber(c).ok);
+  if (known >= 2 || (known === 1 && !numbersFollow)) {
     dataRecords = records.slice(1);
     headerKeys.forEach((key, i) => {
       const cell = first.cells[i]!.trim();

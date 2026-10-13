@@ -34,7 +34,9 @@ export function ExportPanel() {
     if (!sheet) return;
     download(
       sheetFileName(PROJECT, index, count, 'dxf'),
-      writeSheetDxf(sheet, layout, input.parts),
+      writeSheetDxf(sheet, layout, input.parts, {
+        remnant: result.metrics.sheets[index]?.remnant ?? null,
+      }),
       DXF_TYPE,
     );
   };

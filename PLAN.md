@@ -131,7 +131,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Fáze 7 – Dokončení
 
-- [ ] 7.1 Revize celého src/core subagentem revize-geometrie, opravy.
+- [x] 7.1 Revize celého src/core subagentem revize-geometrie, opravy.
 - [ ] 7.2 README česky: spuštění, formát CSV, podporované DXF entity,
       omezení, nasazení statického buildu (Coolify / libovolný web server).
 - [ ] 7.3 Finální kontrola: lint, typecheck, test, e2e, build bez chyb
@@ -141,8 +141,8 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 
 ## Stav
 
-Aktuální krok: 7.1
-Poslední commit: feat: uložení zbytků tabulí do skladu (krok 6.2)
+Aktuální krok: 7.2
+Poslední commit: fix: opravy z celkové revize jádra (krok 7.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -440,3 +440,25 @@ BLOKOVÁNO: ne
   Přednost zbytků při výběru tabule už měl MaxRects i placer. Ukládá se do
   seznamu tabulí projektu (ten se ukládá automaticky), ne do knihovny formátů.
 - Konec fáze 6: push selhal – repozitář stále nemá nastavený remote. Pokračuji.
+- 7.1: Celková revize jádra (revize-geometrie) a revize výkonu kroku 5.7.
+  Opraveno: placer počítá v souřadnicích kolem středu užitné plochy (Clipper
+  nad ~4,7 m byl 5–7× pomalejší); hledání polohy je generátor (`findSteps`) –
+  řízení předá po natočení, po dávkách 16 překážek i po kusu, který se
+  nevejde, takže „Zastavit" a časový limit reagují do zlomku sekundy (limit
+  15 s končí v 15,0 s místo 19,7 s); Minkowského součet sjednocuje kaskádově
+  (ozubení 24 zubů 0,07 s místo 30 s); `boundComplexity` nemění konvexní
+  obrysy a nepoužije zjednodušení, které limitu 64 vrcholů nedosáhne (jen
+  zvětšovalo rozestup o 0,2–0,4 mm); pojistka kandidátů má práh plochy
+  1e-8 mm² (1e-6 propustil hrot zanořený o 2 µm); průběh tvarového režimu
+  ukazuje nejvýš 99 %, dokud výpočet běží. Validace vstupu přesunuta do
+  `core/validate.ts` (hlavní balík bez Clipperu): nejvýš 100 000 kusů,
+  plocha zóny přes sjednocení, samoprůnik obrysu/otvoru a otvor mimo díl.
+  DXF export: vrstva ZBYTEK (obdélník zbytku), escapování `%` a `\` v TEXT,
+  výška popisku podle velikosti dílu. Popisky v SVG/DXF/náhledu leží
+  v materiálu dílu (`labelSpot` – i u rámu a tvaru L). CSV import: hlavička
+  se pozná jen při ≥ 2 známých sloupcích (nebo 1 bez čísel za ním). Zbytky
+  se uloží jen jednou na výsledek a použité zbytkové tabule ubudou ze skladu.
+  Import DXF běží ve workeru (velký výkres neblokuje UI).
+  Přidány testy: ozubení a hřeben v Minkowského součtu s výkonovou
+  pojistkou, rozdíl s překrývajícími se otvory NFP, limit uprostřed
+  výchozího jedince, benchmark samotného tvarového placeru (200 dílů 5,5 s).

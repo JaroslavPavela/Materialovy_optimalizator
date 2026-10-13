@@ -1,13 +1,16 @@
 import * as Comlink from 'comlink';
 import type { NestingInput } from '../core/model.ts';
 import type { NestOutcome, NestProgress } from '../core/nesting/nest.ts';
-import type { NestingService } from './service.ts';
+import type { DxfPartsResult } from '../core/import/dxf-parts.ts';
+import type { DxfImportOptions, NestingService } from './service.ts';
 
 /** Klient pro UI: výpočet vždy ve Web Workeru, nikdy v UI vlákně. */
 export interface NestingClient {
   nest(input: NestingInput, onProgress?: (p: NestProgress) => void): Promise<NestOutcome>;
   /** Zastaví výpočet; `nest` se vrátí s nejlepším dosavadním výsledkem. */
   stop(): Promise<void>;
+  /** Díly z DXF – čtení probíhá ve workeru. */
+  importDxf(fileName: string, data: ArrayBuffer, opts: DxfImportOptions): Promise<DxfPartsResult>;
   /** Okamžitě ukončí worker (běžící `nest` skončí chybou) a připraví nový. */
   abort(): void;
   /** Ukončí worker natrvalo. */
@@ -46,6 +49,9 @@ export function createNestingClient(): NestingClient {
     },
     stop() {
       return remote.stop();
+    },
+    importDxf(fileName, data, opts) {
+      return remote.importDxf(fileName, data, opts);
     },
     abort() {
       worker.terminate();

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_NESTING_PARAMS, type NestingInput, type Part } from '../../src/core/model.ts';
 import { compareRectResults } from '../../src/core/nesting/maxrects.ts';
 import { nest, nestSteps } from '../../src/core/nesting/nest.ts';
+import { defaultShapeOrder, placeShapes, ShapeContext } from '../../src/core/nesting/placer.ts';
 import { shapeInvariantViolations } from '../core/nesting/invariants.ts';
 
 /** 10 různých hvězdicových tvarů s oblouky, po 20 kusech = 200 dílů. */
@@ -66,6 +67,24 @@ describe('benchmark 200 dílů / 10 tvarů', () => {
         `využití tvarově ${(shape.metrics.utilization * 100).toFixed(1)} % ` +
         `(obdélníky ${(rect.result.metrics.utilization * 100).toFixed(1)} %), ` +
         `tabulí ${shape.layouts.length} / ${rect.result.layouts.length}`,
+    );
+  }, 180_000);
+
+  it('samotný tvarový placer (výchozí jedinec): ne horší než obalové obdélníky, do 60 s', () => {
+    // Celkový výsledek výše zahrnuje i MaxRects – tady se ověřuje přímo tvarový placer.
+    const input = benchmarkInput();
+    const t0 = performance.now();
+    const ctx = new ShapeContext(input);
+    const shape = placeShapes(ctx, defaultShapeOrder(input));
+    const time = performance.now() - t0;
+    const rect = nest({ ...input, params: { ...input.params, mode: 'rect' } });
+    if (!rect.ok) throw new Error('výpočet selhal');
+    expect(shape.unplaced).toEqual([]);
+    expect(compareRectResults(input, shape, rect.result)).toBeLessThanOrEqual(0);
+    expect(time).toBeLessThan(60_000);
+    console.log(
+      `tvarový placer ${Math.round(time)} ms, tabulí ${shape.layouts.length} ` +
+        `(obdélníky ${rect.result.layouts.length})`,
     );
   }, 180_000);
 });

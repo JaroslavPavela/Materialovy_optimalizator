@@ -101,6 +101,40 @@ describe('minkowski přes konvexní rozklad', () => {
       { numRuns: 80 },
     );
   });
+
+  /** Ozubené kolo: `teeth` zubů, každý 4 vrcholy (hlava a pata). */
+  const gear = (teeth: number, r = 100, depth = 8): Ring =>
+    Array.from({ length: teeth * 4 }, (_, i) => {
+      const a = (2 * Math.PI * i) / (teeth * 4);
+      const rr = i % 4 < 2 ? r : r - depth;
+      return { x: rr * Math.cos(a), y: rr * Math.sin(a) };
+    });
+  /** Hřeben: `n` zubů šířky 4 a délky 30 na liště výšky 10 (CCW). */
+  const comb = (n: number): Ring => {
+    const pts: Point[] = [
+      { x: 0, y: 0 },
+      { x: n * 8, y: 0 },
+    ];
+    for (let k = n - 1; k >= 0; k--) {
+      pts.push({ x: k * 8 + 8, y: 40 }, { x: k * 8 + 4, y: 40 }, { x: k * 8 + 4, y: 10 });
+      pts.push({ x: k * 8, y: 10 });
+    }
+    return pts;
+  };
+
+  it.each([
+    ['ozubení 24 zubů se sebou', gear(24), gear(24)],
+    ['ozubení a hřeben', gear(16), comb(12)],
+    ['hřeben se sebou (otočeným)', comb(10), comb(10).map((p) => ({ x: -p.x, y: -p.y }))],
+  ])('%s: stejná plocha jako Clipper a do 2 s', (_, a, b) => {
+    const t0 = performance.now();
+    const fast = minkowskiSumFast(a, b);
+    // Výkonová pojistka: jedno sjednocení všech kusů trvalo u 24 zubů ~30 s.
+    expect(performance.now() - t0).toBeLessThan(2000);
+    const ref = minkowskiSum(a, b);
+    const area = polygonsArea(ref);
+    expect(Math.abs(polygonsArea(fast) - area)).toBeLessThan(1e-4 * Math.max(1, area));
+  });
 });
 
 describe('IFP otvoru a konvexní obal', () => {

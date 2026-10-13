@@ -4,7 +4,6 @@ import { remnantSheets } from '../../src/core/remnants.ts';
 import { computeMetrics, largestRemnant, partArea } from '../../src/core/metrics.ts';
 import {
   DEFAULT_NESTING_PARAMS,
-  validateNestingInput,
   type NestingInput,
   type Part,
   type Sheet,
@@ -13,6 +12,7 @@ import { nestRects } from '../../src/core/nesting/maxrects.ts';
 import { arbRectParts, arbSheet, arbSpacing } from './arbitraries.ts';
 import { placedRect } from './nesting/invariants.ts';
 import { ringBBox } from '../../src/core/geometry/polygon.ts';
+import { validateNestingInput } from '../../src/core/validate.ts';
 
 const sheet = (over: Partial<Sheet> = {}): Sheet => ({
   id: 's',

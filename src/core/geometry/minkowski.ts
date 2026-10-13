@@ -190,9 +190,20 @@ export function minkowskiSumFast(a: Ring, b: Ring): Polygon[] {
   const pa = convexDecomposition(a);
   const pb = convexDecomposition(b);
   if (!pa || !pb) return clipperMinkowskiSum(a, b);
-  const sums: Polygon[] = [];
-  for (const x of pa) for (const y of pb) sums.push({ outer: convexMinkowski(x, y), holes: [] });
-  return unionPolygons(sums);
+  // Kaskádové sjednocení: nejdřív po řádcích (Aᵢ ⊕ všechna Bⱼ), pak binárním
+  // stromem. Jedno sjednocení všech |A|·|B| silně se překrývajících kusů je
+  // u tvarů s mnoha konkávními vrcholy (ozubení) řádově pomalejší.
+  let level = pa.map((x) =>
+    unionPolygons(pb.map((y) => ({ outer: convexMinkowski(x, y), holes: [] }))),
+  );
+  while (level.length > 1) {
+    const next: Polygon[][] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      next.push(i + 1 < level.length ? unionPolygons([...level[i]!, ...level[i + 1]!]) : level[i]!);
+    }
+    level = next;
+  }
+  return level[0] ?? [];
 }
 
 /** Konvexní obal bodů (monotónní řetězec), CCW, bez kolineárních vrcholů. */

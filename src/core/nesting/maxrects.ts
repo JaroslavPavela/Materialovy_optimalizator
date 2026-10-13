@@ -1,7 +1,7 @@
 import { EPS } from '../geometry/eps.ts';
 import { ringBBox } from '../geometry/polygon.ts';
 import { translationForCorner } from '../geometry/transform.ts';
-import { placePart } from '../placed.ts';
+import { stripRemnant } from '../metrics.ts';
 import type { Rect } from '../geometry/types.ts';
 import {
   rectRotations,
@@ -399,22 +399,13 @@ function lastStripArea(input: NestingInput, r: ComparableResult): number {
 /** Pruh se pro každý výsledek počítá jednou (třídění populace GA ho volá často). */
 const stripCache = new WeakMap<ComparableResult, number>();
 
+/** Plocha zbytku-pruhu (stejná definice jako zobrazený zbytek v metrikách). */
 function computeStripArea(input: NestingInput, r: ComparableResult): number {
   const last = r.layouts.at(-1);
   if (!last) return 0;
   const sheet = input.sheets.find((s) => s.id === last.sheetId)!;
-  const parts = new Map(input.parts.map((p) => [p.id, p]));
-  const m = sheet.margin;
-  let maxX = m;
-  let maxY = m;
-  for (const p of last.placements) {
-    const bb = placePart(parts.get(p.partId)!, p).bbox;
-    maxX = Math.max(maxX, bb.x + bb.width);
-    maxY = Math.max(maxY, bb.y + bb.height);
-  }
-  const w = sheet.width - 2 * m;
-  const h = sheet.height - 2 * m;
-  return Math.max(0, (sheet.width - m - maxX) * h, (sheet.height - m - maxY) * w);
+  const strip = stripRemnant(input, sheet, last);
+  return strip ? strip.width * strip.height : 0;
 }
 
 /**

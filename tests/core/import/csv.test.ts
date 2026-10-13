@@ -394,3 +394,16 @@ describe('property: zápis → čtení', () => {
     );
   });
 });
+
+describe('hlavička vs. díl pojmenovaný jako sloupec (revize 7.1)', () => {
+  const parse = (text: string) => parsePartsCsv(new TextEncoder().encode(text));
+  it('„Díl;100;200;5" je data, ne hlavička', () => {
+    const r = parse('Díl;100;200;5\nBok;300;400;2\n');
+    expect(r.errors).toEqual([]);
+    expect(r.parts.map((p) => p.name)).toEqual(['Díl', 'Bok']);
+  });
+  it('skutečná hlavička s jedním poznaným sloupcem a textem za ním zůstane hlavičkou', () => {
+    const r = parse('název;šířka;výška;počet\nBok;300;400;2\n');
+    expect(r.parts).toHaveLength(1);
+  });
+});

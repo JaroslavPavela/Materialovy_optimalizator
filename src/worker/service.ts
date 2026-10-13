@@ -1,3 +1,8 @@
+import {
+  partsFromDxf,
+  type DxfPartsOptions,
+  type DxfPartsResult,
+} from '../core/import/dxf-parts.ts';
 import type { NestingInput, NestingResult } from '../core/model.ts';
 import { nestSteps, type NestOutcome, type NestProgress } from '../core/nesting/nest.ts';
 
@@ -15,7 +20,15 @@ export interface NestingService {
   nest(input: NestingInput, onProgress?: ProgressCallback): Promise<NestOutcome>;
   /** Zastaví běžící výpočet; ten skončí s nejlepším dosavadním výsledkem. */
   stop(): void;
+  /**
+   * Díly z DXF (čtení, sestavení kontur) – ve workeru, aby velký výkres
+   * neblokoval UI a dxf-parser s Clipperem nebyly v hlavním balíku.
+   */
+  importDxf(fileName: string, data: ArrayBuffer, opts: DxfImportOptions): DxfPartsResult;
 }
+
+/** Volby importu DXF přenositelné do workeru (bez funkcí). */
+export type DxfImportOptions = Pick<DxfPartsOptions, 'mode' | 'idPrefix' | 'rotation'>;
 
 /** Předá řízení smyčce událostí, aby worker stihl přijmout `stop()`. */
 const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -33,9 +46,23 @@ export function createNestingService(
       const steps = nestSteps(input);
       let best: NestingResult;
       let lastReport = -Infinity;
+      let lastStep = 0;
       for (;;) {
         const next = steps.next();
-        if (next.done) return next.value;
+        if (next.done) {
+          // Tvarový režim končí podle času/ustálení – poslední krok nemusel být
+          // nahlášen; závěrečný průběh 100 % s konečným výsledkem.
+          if (onProgress && next.value.ok && lastStep > 0) {
+            onProgress({
+              step: lastStep,
+              totalSteps: lastStep,
+              fraction: 1,
+              best: next.value.result,
+            });
+          }
+          return next.value;
+        }
+        lastStep = next.value.step;
         best = next.value.best;
         const first = next.value.step === 1;
         const last = next.value.step === next.value.totalSteps;
@@ -52,6 +79,9 @@ export function createNestingService(
     },
     stop() {
       stopRequested = currentJob;
+    },
+    importDxf(fileName, data, opts) {
+      return partsFromDxf(fileName, data, opts);
     },
   };
 }

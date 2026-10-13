@@ -4,7 +4,7 @@ import { ANGLE_EPS, EPS } from '../geometry/eps.ts';
 import { pointsBBox } from '../geometry/polygon.ts';
 import type { Contour, Point, Rect } from '../geometry/types.ts';
 import type { NestingInput, NestingResult, Part, Sheet, SheetLayout } from '../model.ts';
-import { placedContours, placePart } from '../placed.ts';
+import { labelSize, placedContours, placePart } from '../placed.ts';
 import { sheetFileName, type ExportFile } from './files.ts';
 
 /** Vrstvy a jejich barvy (AutoCAD Color Index). */
@@ -13,6 +13,7 @@ export const DXF_LAYERS = {
   DILY: 7,
   OTVORY: 1,
   POPISKY: 3,
+  ZBYTEK: 5,
 } as const;
 
 export type DxfLayer = keyof typeof DXF_LAYERS;
@@ -26,6 +27,11 @@ export interface DxfOptions {
   readonly segments?: 'polyline' | 'lines-arcs';
   /** Popisky dílů na vrstvě POPISKY (výchozí ano). */
   readonly labels?: boolean;
+  /**
+   * Obrys zbytku tabule (vrstva ZBYTEK) – aby ho CAM mohl vyříznout jako
+   * samostatný kus do skladu. Chybí-li, zbytek se nezapisuje.
+   */
+  readonly remnant?: Rect | null;
 }
 
 const CRLF = '\r\n';
@@ -65,6 +71,9 @@ export function dxfText(text: string): string {
     const code = ch.codePointAt(0)!;
     let piece: string;
     if (code < 32 || code === 127) piece = ' ';
+    // „%%" zahajuje řídicí kód TEXT (%%u, %%d…), „\U+" znak Unicode – zapsat doslova.
+    else if (ch === '%') piece = '%%%';
+    else if (ch === '\\') piece = '\\U+005C';
     else if (code < 127) piece = ch;
     else if (code <= 0xffff) piece = `\\U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
     else piece = '?';
@@ -251,15 +260,17 @@ export function writeSheetDxf(
       opts,
     );
   }
+  if (opts.remnant) writeContour(dxf, rectContour(opts.remnant), 'ZBYTEK', opts);
   for (const p of placed) {
     writeContour(dxf, p.contours.outer, 'DILY', opts);
     for (const h of p.contours.holes) writeContour(dxf, h, 'OTVORY', opts);
   }
   if (opts.labels !== false) {
     for (const { label } of placed) {
-      const { bbox, labelAt } = label;
-      const height = Math.min(bbox.width, bbox.height) * 0.15;
-      if (height <= 0) continue;
+      const { labelAt } = label;
+      // Výška velkých písmen ≈ 0,7 × velikost písma (stejná velikost jako SVG a náhled).
+      const height = 0.7 * labelSize(label);
+      if (!(height > 0)) continue;
       // Zarovnání na střed (72 = 1) a doprostřed výšky (73 = 2) podle bodu 11/21.
       dxf
         .entity('TEXT', 'POPISKY')
@@ -288,7 +299,10 @@ export function writeResultDxf(
     if (!sheet) throw new RangeError(`Rozložení odkazuje na neznámou tabuli „${layout.sheetId}".`);
     return {
       name: sheetFileName(project, i, result.layouts.length, 'dxf'),
-      content: writeSheetDxf(sheet, layout, input.parts, opts),
+      content: writeSheetDxf(sheet, layout, input.parts, {
+        remnant: result.metrics.sheets[i]?.remnant ?? null,
+        ...opts,
+      }),
     };
   });
 }

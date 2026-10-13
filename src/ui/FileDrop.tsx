@@ -21,7 +21,7 @@ export function FileDrop() {
     const files = await Promise.all(
       [...list].map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })),
     );
-    importFiles(files);
+    await importFiles(files);
   };
 
   return (

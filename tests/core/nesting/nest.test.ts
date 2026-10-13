@@ -99,7 +99,7 @@ describe('tvarový režim', () => {
     expect(shapeInvariantViolations(shapeInput, shape.result)).toEqual([]);
   });
 
-  it('obdélníky, pak optimalizátor; průběh roste do 1; nikdy horší než obdélníkový režim', () => {
+  it('obdélníky, pak optimalizátor; průběh neklesá a nepřekročí 1; nikdy horší než obdélníkový režim', () => {
     const shapeMode = { ...input, params: { ...input.params, mode: 'shape' as const } };
     // Pevné hodiny: žádné tiky ani časový limit – počet kroků je dán generacemi.
     const steps = nestSteps(shapeMode, {
@@ -138,5 +138,27 @@ describe('tvarový režim', () => {
     }
     expect(next.value.ok).toBe(true);
     expect(n).toBeLessThan(16 + 10);
+  });
+
+  it('limit vyprší uprostřed výchozího jedince: tiky během skládání, průběh ≤ 99 %, výsledek tvarový', () => {
+    let t = 0;
+    // Každé čtení hodin posune čas o 100 ms – limit 5 ms vyprší hned po obdélnících.
+    const steps = nestSteps(
+      { ...shapeInput, params: { ...shapeInput.params, timeLimitMs: 5 } },
+      { now: () => (t += 100) },
+    );
+    const fractions: number[] = [];
+    let next = steps.next();
+    while (!next.done) {
+      fractions.push(next.value.fraction);
+      next = steps.next();
+    }
+    // Po 16 krocích MaxRects přišly tiky uprostřed skládání (vyhodnocení nehotové).
+    expect(fractions.length).toBeGreaterThan(16 + 1);
+    expect(fractions.every((f) => f <= 0.99)).toBe(true);
+    if (!next.value.ok) throw new Error('výpočet selhal');
+    // Výchozí jedinec doběhl i přes vypršený limit: L do sebe zapadnou na 1 tabuli.
+    expect(next.value.result.layouts).toHaveLength(1);
+    expect(shapeInvariantViolations(shapeInput, next.value.result)).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
-import { labelFontSize, partColors, placedPartPaths, ringPath } from '../core/export/svg.ts';
+import { partColors, placedPartPaths, ringPath } from '../core/export/svg.ts';
+import { labelSize } from '../core/placed.ts';
 import type { Part, Sheet, SheetLayout, SheetMetrics } from '../core/model.ts';
 import { useAppStore } from '../state/store.ts';
 import { formatNumber, formatPercent } from './format.ts';
@@ -180,7 +181,7 @@ function SheetSvg({ sheet, layout, metrics, parts }: SheetSvgProps) {
             className="part-label"
             x={p.labelAt.x}
             y={flipY(p.labelAt.y)}
-            fontSize={labelFontSize(p.bbox, p.part.name)}
+            fontSize={labelSize(p)}
           >
             {p.part.name}
           </text>

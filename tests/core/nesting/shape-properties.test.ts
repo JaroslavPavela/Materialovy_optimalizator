@@ -1,15 +1,11 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_NESTING_PARAMS,
-  validateNestingInput,
-  type NestingInput,
-  type Sheet,
-} from '../../../src/core/model.ts';
+import { DEFAULT_NESTING_PARAMS, type NestingInput, type Sheet } from '../../../src/core/model.ts';
 import { optimizeShapes } from '../../../src/core/nesting/optimizer.ts';
 import { defaultShapeOrder, placeShapes, ShapeContext } from '../../../src/core/nesting/placer.ts';
 import { arbCombPart, arbForbiddenZones, arbFramePart, arbShapePart } from '../arbitraries.ts';
 import { shapeInvariantViolations } from './invariants.ts';
+import { validateNestingInput } from '../../../src/core/validate.ts';
 
 /** Malá tabule, ať se díly tlačí a vzniká hodně dotyků. */
 const arbSmallSheet: fc.Arbitrary<Sheet> = fc

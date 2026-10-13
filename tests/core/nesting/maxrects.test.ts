@@ -12,13 +12,13 @@ import {
 } from '../../../src/core/nesting/maxrects.ts';
 import {
   DEFAULT_NESTING_PARAMS,
-  validateNestingInput,
   type NestingInput,
   type Part,
   type Sheet,
 } from '../../../src/core/model.ts';
 import { arbEdgeNestingInput, arbRectParts, arbSheet, arbSpacing } from '../arbitraries.ts';
 import { placedRect, reasonViolations, rectInvariantViolations } from './invariants.ts';
+import { validateNestingInput } from '../../../src/core/validate.ts';
 
 const sheet = (over: Partial<Sheet> = {}): Sheet => ({
   id: 's',

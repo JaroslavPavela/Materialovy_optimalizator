@@ -1,10 +1,5 @@
 import { computeMetrics } from '../metrics.ts';
-import {
-  validateNestingInput,
-  type InputIssue,
-  type NestingInput,
-  type NestingResult,
-} from '../model.ts';
+import { type InputIssue, type NestingInput, type NestingResult } from '../model.ts';
 import {
   compareRectResults,
   packRects,
@@ -15,6 +10,7 @@ import {
 } from './maxrects.ts';
 import { optimizeShapes, type GaOptions } from './optimizer.ts';
 import { ShapeContext } from './placer.ts';
+import { validateNestingInput } from '../validate.ts';
 
 /** Průběh výpočtu po jednom kroku. */
 export interface NestProgress {
@@ -128,7 +124,7 @@ export function* nestSteps(
         yield {
           step,
           totalSteps: Math.max(totalSteps, step + 1),
-          fraction: Math.min(1, rectShare + (1 - rectShare) * (elapsed / limit)),
+          fraction: Math.min(0.99, rectShare + (1 - rectShare) * (elapsed / limit)),
           best: bestResult!,
         };
       }

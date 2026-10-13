@@ -3,7 +3,7 @@ import { bulgeToArc, contourBBox, contourToRing } from '../geometry/contour.ts';
 import { orientRing, rectToPolygon, ringArea, simplifyRingWithError } from '../geometry/polygon.ts';
 import { rotatePolygon } from '../geometry/transform.ts';
 import { EPS } from '../geometry/eps.ts';
-import type { Contour, Polygon } from '../geometry/types.ts';
+import type { Contour, Polygon, Ring } from '../geometry/types.ts';
 import { allowedRotations, type Part, type Sheet } from '../model.ts';
 import { partContours } from '../placed.ts';
 
@@ -128,19 +128,41 @@ export function shrinkForCheck(polys: readonly Polygon[]): Polygon[] {
   return offsetPolygons(polys, -EPS / 2, 'round', EPS / 8);
 }
 
+/** Je obrys konvexní (žádný vrchol se neotáčí proti orientaci obrysu)? */
+function isConvexRing(ring: Ring): boolean {
+  const n = ring.length;
+  let sign = 0;
+  for (let i = 0; i < n; i++) {
+    const a = ring[i]!;
+    const b = ring[(i + 1) % n]!;
+    const c = ring[(i + 2) % n]!;
+    const cr = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    if (Math.abs(cr) <= 1e-12) continue;
+    if (sign === 0) sign = Math.sign(cr);
+    else if (Math.sign(cr) !== sign) return false;
+  }
+  return true;
+}
+
 /**
  * Omezí počet vrcholů vnějšího obrysu konzervativně: zjednoduší ho
  * (Ramer–Douglas–Peucker) s rostoucí tolerancí a nafoukne o skutečnou
  * odchylku s ostrými rohy – každý bod původní hranice leží do této
  * odchylky od zjednodušené, takže výsledek původní tvar vždy obsahuje.
+ * Konvexní obrys se nemění (Minkowského součet je jeden kus bez ohledu na
+ * počet vrcholů) a zjednodušení, které limitu nedosáhne ani při
+ * MAX_SIMPLIFY, se nepoužije – jen by zvětšilo rozestup.
  */
 export function boundComplexity(poly: Polygon, maxVertices = MAX_NEST_VERTICES): Polygon {
-  if (poly.outer.length <= maxVertices) return poly;
+  if (poly.outer.length <= maxVertices || isConvexRing(poly.outer)) return poly;
   // Tolerance nejvýš MAX_SIMPLIFY mm – raději víc vrcholů než vyplněné konkávy
   // (hřeben by jinak přerostl i svůj obalový obdélník).
   for (let tol = 0.025; ; tol *= 2) {
     const s = simplifyRingWithError(poly.outer, tol);
-    if (s.ring.length > maxVertices && tol < MAX_SIMPLIFY) continue;
+    if (s.ring.length > maxVertices) {
+      if (tol < MAX_SIMPLIFY) continue;
+      return poly;
+    }
     const grown = offsetPolygons([{ outer: s.ring, holes: poly.holes }], s.error);
     if (grown.length === 0) return poly;
     return grown.reduce((a, b) => (ringArea(b.outer) > ringArea(a.outer) ? b : a));

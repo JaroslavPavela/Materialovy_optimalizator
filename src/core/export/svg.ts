@@ -1,7 +1,7 @@
 import { bulgeToArc } from '../geometry/contour.ts';
 import type { Contour, Rect, Ring } from '../geometry/types.ts';
 import type { NestingInput, NestingResult, Part, Sheet, SheetLayout } from '../model.ts';
-import { placedContours, placePart, type PlacedPart } from '../placed.ts';
+import { labelSize, placedContours, placePart, type PlacedPart } from '../placed.ts';
 import { sheetFileName, type ExportFile } from './files.ts';
 
 /** Barva dílu podle pořadí v zadání – zlatý úhel rozprostře odstíny rovnoměrně. */
@@ -22,12 +22,17 @@ export function svgNumber(n: number): string {
 }
 
 export function xmlEscape(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  return (
+    text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+      // Řídicí znaky XML 1.0 nepovoluje (soubor by nešel otevřít).
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, ' ')
+  );
 }
 
 /**
@@ -61,7 +66,10 @@ export function ringPath(ring: Ring): string {
   return contourPath(ring.map((p) => ({ x: p.x, y: p.y, bulge: 0 })));
 }
 
-/** Velikost popisku v mm, aby se název vešel do obalového obdélníku dílu. */
+/**
+ * Velikost popisku v mm podle obalového obdélníku a délky názvu (bez ohledu
+ * na tvar – pro umístěný díl použijte `labelSize` z placed.ts).
+ */
 export function labelFontSize(bbox: Rect, name: string): number {
   return Math.min(bbox.height * 0.4, (bbox.width / Math.max(3, name.length)) * 1.6);
 }
@@ -150,7 +158,7 @@ export function writeSheetSvg(
       `<g font-family="sans-serif" text-anchor="middle" dominant-baseline="central" fill="#1f2328">`,
     );
     for (const { placed } of items) {
-      const size = labelFontSize(placed.bbox, placed.part.name);
+      const size = labelSize(placed);
       if (!(size > 0)) continue;
       out.push(
         `<text x="${f(placed.labelAt.x)}" y="${f(H - placed.labelAt.y)}" font-size="${f(size)}">${xmlEscape(placed.part.name)}</text>`,

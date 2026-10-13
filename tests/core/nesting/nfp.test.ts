@@ -1,15 +1,24 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  differencePolygons,
   intersectPolygons,
   pointInIntRing,
   polygonsArea,
+  unionPolygons,
 } from '../../../src/core/geometry/clipper.ts';
 import { pointRingDistance, rectToPolygon } from '../../../src/core/geometry/polygon.ts';
 import { translatePolygon, translateRing } from '../../../src/core/geometry/transform.ts';
 import type { Point, Polygon, Ring } from '../../../src/core/geometry/types.ts';
 import type { Part } from '../../../src/core/model.ts';
-import { feasibleRegion, ifpRect, nfp, NfpCache, SLACK } from '../../../src/core/nesting/nfp.ts';
+import {
+  feasibleRegion,
+  ifpRect,
+  nfp,
+  NfpCache,
+  SLACK,
+  subtractObstacles,
+} from '../../../src/core/nesting/nfp.ts';
 import { ShapeCache } from '../../../src/core/nesting/shapes.ts';
 import { arbStarRing } from '../arbitraries.ts';
 
@@ -242,5 +251,29 @@ describe('revize 5.2: díly přesně na míru, zóny, natočení', () => {
     cache.parts(a, 180, b, 270);
     cache.parts(a, 90.0000000001, b, 180);
     expect(cache.misses).toBe(1);
+  });
+});
+
+describe('subtractObstacles', () => {
+  it('překrývající se NFP s otvorem: kapsa zakrytá jinou překážkou zůstane obsazená', () => {
+    const region = [rectToPolygon({ x: 0, y: 0, width: 300, height: 300 })];
+    // NFP rámu: obsazený čtverec 200 s volnou kapsou 100 uprostřed (otvor CW).
+    const frame: Polygon = {
+      outer: rectToPolygon({ x: 0, y: 0, width: 200, height: 200 }).outer,
+      holes: [rectToPolygon({ x: 50, y: 50, width: 100, height: 100 }).outer.toReversed()],
+    };
+    // Druhá překážka zakrývá část kapsy (50 × 60) a zbytkem leží na rámu.
+    const block = rectToPolygon({ x: 0, y: 0, width: 80, height: 60 });
+    const got = subtractObstacles(region, [
+      { nfp: [frame], at: { x: 0, y: 0 } },
+      { nfp: [block], at: { x: 100, y: 70 } },
+    ]);
+    const expected = differencePolygons(
+      region,
+      unionPolygons([frame, translatePolygon(block, 100, 70)]),
+    );
+    expect(polygonsArea(got)).toBeCloseTo(polygonsArea(expected), 6);
+    // Volný zůstane pás mimo rám a kapsa bez zakryté části.
+    expect(polygonsArea(got)).toBeCloseTo(300 * 300 - 200 * 200 + 100 * 100 - 50 * 60, 6);
   });
 });

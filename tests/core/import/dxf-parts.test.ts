@@ -5,12 +5,9 @@ import {
   contourOrientation,
 } from '../../../src/core/geometry/contour.ts';
 import { baseName, partsFromDxf } from '../../../src/core/import/dxf-parts.ts';
-import {
-  DEFAULT_NESTING_PARAMS,
-  validateNestingInput,
-  type Part,
-} from '../../../src/core/model.ts';
+import { DEFAULT_NESTING_PARAMS, type Part } from '../../../src/core/model.ts';
 import { arc, circle, dxf, line, lwpoly, rectPoly } from './dxf-builder.ts';
+import { validateNestingInput } from '../../../src/core/validate.ts';
 
 /** Díly projdou validací vstupu nestingu (tvar odpovídá rozměrům). */
 function expectValid(parts: readonly Part[]) {

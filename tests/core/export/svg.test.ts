@@ -21,7 +21,7 @@ import {
   type SheetLayout,
 } from '../../../src/core/model.ts';
 import { nest } from '../../../src/core/nesting/nest.ts';
-import { placedContours } from '../../../src/core/placed.ts';
+import { placedContours, placePart } from '../../../src/core/placed.ts';
 
 type Cmd =
   | { c: 'M' | 'L'; p: Point }
@@ -152,6 +152,7 @@ describe('pomocné funkce', () => {
 
   it('xmlEscape', () => {
     expect(xmlEscape(`a<b>&"c'`)).toBe('a&lt;b&gt;&amp;&quot;c&apos;');
+    expect(xmlEscape('a\u0001b\u001fc\td')).toBe('a b c\td');
   });
 
   it('barvy podle pořadí dílu jsou různé a stabilní', () => {
@@ -262,7 +263,10 @@ describe('writeSheetSvg', () => {
       ...svg.matchAll(/<text x="([^"]+)" y="([^"]+)" font-size="[^"]+">([^<]*)<\/text>/g),
     ];
     expect(labels).toHaveLength(3);
-    expect(labels[0]!.slice(1)).toEqual(['75', String(500 - 50), 'Příruba &lt;A&amp;B&gt;']);
+    const p0 = placePart(shaped, layout.placements[0]!);
+    expect(Number(labels[0]![1])).toBeCloseTo(p0.labelAt.x, 3);
+    expect(Number(labels[0]![2])).toBeCloseTo(500 - p0.labelAt.y, 3);
+    expect(labels[0]![3]).toBe('Příruba &lt;A&amp;B&gt;');
     expect(svg.indexOf('<text')).toBeGreaterThan(svg.indexOf('</g>'));
     expect(writeSheetSvg(sheet, layout, [shaped, rect], { labels: false })).not.toContain('<text');
   });

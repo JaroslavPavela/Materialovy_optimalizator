@@ -33,6 +33,16 @@ describe('NestingService', () => {
     expect(steps.length).toBeGreaterThan(2);
   });
 
+  it('po doběhnutí přijde závěrečný průběh 100 % s konečným výsledkem', async () => {
+    const service = createNestingService(async () => {});
+    const progress: NestProgress[] = [];
+    const outcome = await service.nest(input, (p) => progress.push(p));
+    const last = progress.at(-1)!;
+    expect(last.fraction).toBe(1);
+    if (!outcome.ok) throw new Error('výpočet selhal');
+    expect(last.best).toEqual(outcome.result);
+  });
+
   it('stop() ukončí výpočet s nejlepším dosavadním výsledkem', async () => {
     let service: NestingService | null = null;
     let yields = 0;

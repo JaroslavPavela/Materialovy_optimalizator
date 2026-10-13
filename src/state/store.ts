@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { parsePartsCsv } from '../core/import/csv.ts';
-import { partsFromDxf, type DxfPartMode } from '../core/import/dxf-parts.ts';
+import type { DxfPartMode } from '../core/import/dxf-parts.ts';
 import {
   DEFAULT_NESTING_PARAMS,
   type ForbiddenZone,
@@ -72,8 +72,8 @@ export interface AppActions {
    * Načte soubory s díly: CSV nahradí seznam dílů (další soubory dávky už
    * přidávají), DXF díly přidá. Podle přípony .dxf, jinak CSV.
    */
-  importFiles(files: readonly ImportFile[]): void;
-  importCsv(fileName: string, data: ArrayBuffer): void;
+  importFiles(files: readonly ImportFile[]): Promise<void>;
+  importCsv(fileName: string, data: ArrayBuffer): Promise<void>;
   setDxfMode(mode: DxfPartMode): void;
   /** Nahradí zadání projektem (z úložiště nebo souboru); běžící výpočet zruší. */
   loadProject(project: Project): void;
@@ -167,6 +167,8 @@ const projectReset = {
 } satisfies Partial<AppState>;
 
 let client: NestingClient | null = null;
+/** Výsledek, ze kterého už byly zbytky uloženy. */
+let remnantsSavedFor: NestingResult | null = null;
 /** Klient workeru (vytvoří se při prvním výpočtu); v testech lze podstrčit vlastní. */
 export function setNestingClient(c: NestingClient | null): void {
   client = c;
@@ -240,23 +242,42 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   saveRemnants() {
     const { result, resultInput } = get();
-    if (!result || !resultInput) return 0;
-    const sheets = remnantSheets(resultInput, result, () => newId('zbytek'));
-    if (sheets.length > 0) set((s) => ({ sheets: [...s.sheets, ...sheets] }));
-    return sheets.length;
+    // Pro jeden výsledek jen jednou – jinak by se zbytky ve skladu zdvojily.
+    if (!result || !resultInput || remnantsSavedFor === result) return 0;
+    remnantsSavedFor = result;
+    const added = remnantSheets(resultInput, result, () => newId('zbytek'));
+    // Zbytkové tabule použité ve výsledku se spotřebovaly: odečíst ze skladu.
+    const used = new Map<string, number>();
+    for (const l of result.layouts) used.set(l.sheetId, (used.get(l.sheetId) ?? 0) + 1);
+    set((s) => ({
+      sheets: [
+        ...s.sheets
+          .map((sh) =>
+            sh.remnant && sh.stock !== null && used.has(sh.id)
+              ? { ...sh, stock: Math.max(0, sh.stock - used.get(sh.id)!) }
+              : sh,
+          )
+          .filter((sh) => !(sh.remnant && sh.stock === 0)),
+        ...added,
+      ],
+    }));
+    return added.length;
   },
 
   removeFromLibrary(libraryId) {
     set((s) => ({ sheetLibrary: s.sheetLibrary.filter((l) => l.id !== libraryId) }));
   },
 
-  importFiles(files) {
+  async importFiles(files) {
     let parts = get().parts;
     let replaced = false;
     const reports: ImportReport[] = [];
     for (const f of files) {
       if (/\.dxf$/i.test(f.name)) {
-        const r = partsFromDxf(f.name, f.data, { mode: get().dxfMode, idPrefix: newId('dxf') });
+        const r = await getClient().importDxf(f.name, f.data, {
+          mode: get().dxfMode,
+          idPrefix: newId('dxf'),
+        });
         parts = [...parts, ...r.parts];
         reports.push({
           fileName: f.name,
@@ -283,7 +304,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   importCsv(fileName, data) {
-    get().importFiles([{ name: fileName, data }]);
+    return get().importFiles([{ name: fileName, data }]);
   },
 
   setDxfMode(mode) {

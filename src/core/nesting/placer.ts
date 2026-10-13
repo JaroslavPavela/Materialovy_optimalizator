@@ -95,6 +95,17 @@ export interface Candidate {
   readonly left: number;
 }
 
+/**
+ * Plocha průniku zmenšených tvarů, která už je překryv (mm²). Legitimní
+ * převis (≤ SLACK) po zmenšení o EPS/2 nezbude; pravoúhlý roh zanořený
+ * o 2 µm má po zmenšení plochu průniku ~1e-6 mm², proto práh na úrovni
+ * jednotky Clipperu na druhou (1e-4 mm)².
+ */
+const FIT_AREA_TOL = 1e-8;
+
+/** Po kolika překážkách nejvýš předat řízení při aktualizaci přípustné oblasti. */
+const OBSTACLE_BATCH = 16;
+
 /** Je kandidát `a` níž (a při shodě víc vlevo) než `b`? */
 const lower = (a: Candidate, b: Candidate) =>
   a.bottom < b.bottom - EPS || (a.bottom <= b.bottom + EPS && a.left < b.left - EPS);
@@ -109,10 +120,46 @@ export class ShapeSheet {
   readonly placed: Placed[] = [];
   private readonly ctx: ShapeContext;
   private readonly regions = new Map<string, { region: Polygon[]; upto: number }>();
+  /**
+   * Počátek místních souřadnic = střed užitné plochy. Uvnitř se počítá
+   * posunutě: clipper-lib nad 4745 mm (×1e4 > loRange) přejde na 128bitovou
+   * aritmetiku a je 5–7× pomalejší – plech 6 m by se počítal zbytečně dlouho.
+   */
+  private readonly origin: Point;
+  private readonly zonesLocal: Polygon[];
+  private readonly shrunkZonesLocal: { readonly poly: Polygon; readonly bbox: Rect }[];
 
   constructor(ctx: ShapeContext, sheet: Sheet) {
     this.ctx = ctx;
     this.sheet = sheet;
+    const u = usableRect(sheet, ctx.input.params.spacing);
+    this.origin = { x: Math.round(u.x + u.width / 2), y: Math.round(u.y + u.height / 2) };
+    const o = this.origin;
+    this.zonesLocal = ctx.zonesOf(sheet).map((z) => translatePolygon(z, -o.x, -o.y));
+    this.shrunkZonesLocal = ctx.shrunkZonesOf(sheet).map((z) => {
+      const poly = translatePolygon(z.poly, -o.x, -o.y);
+      return { poly, bbox: polygonBBox(poly) };
+    });
+  }
+
+  private toLocal(c: Candidate): Candidate {
+    const o = this.origin;
+    return {
+      ...c,
+      at: { x: c.at.x - o.x, y: c.at.y - o.y },
+      bottom: c.bottom - o.y,
+      left: c.left - o.x,
+    };
+  }
+
+  private toSheet(c: Candidate): Candidate {
+    const o = this.origin;
+    return {
+      ...c,
+      at: { x: c.at.x + o.x, y: c.at.y + o.y },
+      bottom: c.bottom + o.y,
+      left: c.left + o.x,
+    };
   }
 
   /**
@@ -120,9 +167,23 @@ export class ShapeSheet {
    * (porovnává se obalový obdélník nafouknutého dílu); `null` = nevejde se.
    */
   find(part: Part, rotations: readonly number[]): Candidate | null {
+    const steps = this.findSteps(part, rotations);
+    for (;;) {
+      const next = steps.next();
+      if (next.done) return next.value;
+    }
+  }
+
+  /**
+   * Totéž jako `find` po krocích: předá řízení po každém natočení a po dávkách
+   * překážek, aby šel výpočet ve workeru zastavit i u prvního kusu nového tvaru
+   * (desítky nových NFP a odečtení stovek překážek).
+   */
+  *findSteps(part: Part, rotations: readonly number[]): Generator<void, Candidate | null, void> {
     const { shapes, nfps, input } = this.ctx;
-    const usable = usableRect(this.sheet, input.params.spacing);
-    const zones = this.ctx.zonesOf(this.sheet);
+    const u = usableRect(this.sheet, input.params.spacing);
+    const usable = { ...u, x: u.x - this.origin.x, y: u.y - this.origin.y };
+    const zones = this.zonesLocal;
     const candidates: Candidate[] = [];
     for (const rotation of rotations) {
       const b = shapes.at(part, rotation).outer;
@@ -140,33 +201,38 @@ export class ShapeSheet {
         this.regions.set(k, entry);
       }
       if (entry.upto < this.placed.length) {
-        const fresh = this.placed.slice(entry.upto);
-        // Díl v otvoru jiného dílu: po odečtení NFP (ten otvory pokrývá) se
-        // přidají IFP otvorů. Dřív umístěné díly ani zóny v otvoru být nemohou
-        // (díl s otvorem se umisťoval podle celého vnějšího obrysu).
-        const withHoles = fresh.map((p) => ({
-          p,
-          holes: nfps.holes(p.part, p.rotation, part, rotation),
-        }));
-        if (withHoles.every((x) => x.holes.length === 0)) {
-          entry.region = subtractObstacles(
-            entry.region,
-            fresh.map((p) => ({ nfp: nfps.parts(p.part, p.rotation, part, rotation), at: p.at })),
-          );
-        } else {
-          for (const { p, holes } of withHoles) {
-            entry.region = subtractObstacles(entry.region, [
-              { nfp: nfps.parts(p.part, p.rotation, part, rotation), at: p.at },
-            ]);
-            if (holes.length > 0) {
-              entry.region = unionPolygons([
-                ...entry.region,
-                ...holes.map((h) => translatePolygon(h, p.at.x, p.at.y)),
+        // Po dávkách: stav (`upto`) je po každé dávce konzistentní, mezi
+        // dávkami se předá řízení.
+        while (entry.upto < this.placed.length) {
+          const fresh = this.placed.slice(entry.upto, entry.upto + OBSTACLE_BATCH);
+          // Díl v otvoru jiného dílu: po odečtení NFP (ten otvory pokrývá) se
+          // přidají IFP otvorů. Dřív umístěné díly ani zóny v otvoru být nemohou
+          // (díl s otvorem se umisťoval podle celého vnějšího obrysu).
+          const withHoles = fresh.map((p) => ({
+            p,
+            holes: nfps.holes(p.part, p.rotation, part, rotation),
+          }));
+          if (withHoles.every((x) => x.holes.length === 0)) {
+            entry.region = subtractObstacles(
+              entry.region,
+              fresh.map((p) => ({ nfp: nfps.parts(p.part, p.rotation, part, rotation), at: p.at })),
+            );
+          } else {
+            for (const { p, holes } of withHoles) {
+              entry.region = subtractObstacles(entry.region, [
+                { nfp: nfps.parts(p.part, p.rotation, part, rotation), at: p.at },
               ]);
+              if (holes.length > 0) {
+                entry.region = unionPolygons([
+                  ...entry.region,
+                  ...holes.map((h) => translatePolygon(h, p.at.x, p.at.y)),
+                ]);
+              }
             }
           }
+          entry.upto += fresh.length;
+          yield;
         }
-        entry.upto = this.placed.length;
       }
       const region = entry.region;
       const bb = ringBBox(b);
@@ -183,12 +249,13 @@ export class ShapeSheet {
           }
         }
       }
+      yield;
     }
     candidates.sort((a, b) => (lower(a, b) ? -1 : lower(b, a) ? 1 : 0));
     // Pojistka: kandidát se ověří skutečným průnikem nafouknutých tvarů –
     // numerický artefakt v NFP nesmí vést k dílu položenému přes jiný.
     for (const c of candidates) {
-      if (this.fits(part, c)) return c;
+      if (this.fitsLocal(part, c)) return this.toSheet(c);
     }
     return null;
   }
@@ -199,6 +266,10 @@ export class ShapeSheet {
    * i převis v toleranci skládání zmizí, skutečný překryv i v rohu zůstane).
    */
   fits(part: Part, c: Candidate): boolean {
+    return this.fitsLocal(part, this.toLocal(c));
+  }
+
+  private fitsLocal(part: Part, c: Candidate): boolean {
     const b = translatePolygon(this.ctx.shapes.shrunk(part, c.rotation), c.at.x, c.at.y);
     const bb = polygonBBox(b);
     const hits = (o: { readonly poly: Polygon; readonly bbox: Rect }) =>
@@ -207,13 +278,15 @@ export class ShapeSheet {
         bb.x > o.bbox.x + o.bbox.width ||
         o.bbox.y > bb.y + bb.height ||
         bb.y > o.bbox.y + o.bbox.height
-      ) && polygonsArea(intersectPolygons([b], [o.poly])) > 1e-6;
-    return !this.placed.some(hits) && !this.ctx.shrunkZonesOf(this.sheet).some(hits);
+      ) && polygonsArea(intersectPolygons([b], [o.poly])) > FIT_AREA_TOL;
+    return !this.placed.some(hits) && !this.shrunkZonesLocal.some(hits);
   }
 
+  /** Umístí díl v poloze `c` (souřadnice tabule). */
   place(part: Part, c: Candidate): void {
-    const poly = translatePolygon(this.ctx.shapes.shrunk(part, c.rotation), c.at.x, c.at.y);
-    this.placed.push({ part, rotation: c.rotation, at: c.at, poly, bbox: polygonBBox(poly) });
+    const l = this.toLocal(c);
+    const poly = translatePolygon(this.ctx.shapes.shrunk(part, l.rotation), l.at.x, l.at.y);
+    this.placed.push({ part, rotation: l.rotation, at: l.at, poly, bbox: polygonBBox(poly) });
   }
 }
 
@@ -242,15 +315,17 @@ function* fillSheet(
   const remaining: ShapeItem[] = [];
   let placedArea = 0;
   for (const item of items) {
+    // Předat řízení u každého kusu – i u toho, který se nevejde.
+    yield;
     if (!sheetMatchesPart(item.part, sheet)) {
       remaining.push(item);
       continue;
     }
     const preferred = rotationsFor(ctx, item);
-    let c = s.find(item.part, preferred);
+    let c: Candidate | null = yield* s.findSteps(item.part, preferred);
     // Gen s jedním natočením: když se nevejde, zkusit ostatní povolená.
     if (!c && preferred.length < ctx.rotations(item.part).length) {
-      c = s.find(item.part, ctx.rotations(item.part));
+      c = yield* s.findSteps(item.part, ctx.rotations(item.part));
     }
     if (!c) {
       remaining.push(item);
@@ -265,7 +340,6 @@ function* fillSheet(
       rotation: c.rotation,
     });
     placedArea += item.part.width * item.part.height;
-    yield;
   }
   return { sheet: s, placements, placedArea, remaining };
 }
@@ -300,8 +374,9 @@ export function placeShapes(ctx: ShapeContext, items: readonly ShapeItem[]): Sha
 }
 
 /**
- * Totéž jako `placeShapes` po krocích: po každém umístěném kusu předá řízení
- * (`yield`), aby šel výpočet ve workeru přerušit i uprostřed skládání.
+ * Totéž jako `placeShapes` po krocích: po každém kusu, natočení a dávce
+ * překážek předá řízení (`yield`), aby šel výpočet ve workeru přerušit
+ * i uprostřed skládání.
  */
 export function* placeShapesSteps(
   ctx: ShapeContext,

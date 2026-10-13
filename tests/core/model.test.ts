@@ -9,12 +9,12 @@ import {
   rectRotations,
   sheetMatchesPart,
   totalInstances,
-  validateNestingInput,
   type NestingInput,
   type Part,
   type RotationMode,
   type Sheet,
 } from '../../src/core/model.ts';
+import { validateNestingInput } from '../../src/core/validate.ts';
 
 const part = (over: Partial<Part> = {}): Part => ({
   id: 'p1',
@@ -421,5 +421,64 @@ describe('validateNestingInput', () => {
         },
       ),
     );
+  });
+});
+
+describe('validace z revize 7.1', () => {
+  const msgs = (inp: NestingInput) => validateNestingInput(inp).map((i) => i.message);
+
+  it('zóna „osmička" se stejnými laloky není „nulová plocha"', () => {
+    const eight = [
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 100, y: 0 },
+      { x: 0, y: 100 },
+    ];
+    expect(
+      msgs(input({ sheets: [sheet({ forbiddenZones: [{ id: 'z', polygon: eight }] })] })),
+    ).toEqual([]);
+  });
+
+  it('celkový počet kusů je omezený', () => {
+    expect(msgs(input({ parts: [part({ quantity: 100_001 })] }))[0]).toMatch(/Celkem 100001 kusů/);
+    expect(msgs(input({ parts: [part({ quantity: 100_000 })] }))).toEqual([]);
+  });
+
+  it('tvar z JSON: samoprůnik obrysu a otvor přes obrys', () => {
+    const bow = [
+      { x: 0, y: 0, bulge: 0 },
+      { x: 100, y: 100, bulge: 0 },
+      { x: 100, y: 0, bulge: 0 },
+      { x: 0, y: 40, bulge: 0 },
+    ];
+    // Orientace je CCW (větší lalok), ale obrys se kříží.
+    const crossed = msgs(
+      input({
+        parts: [part({ width: 100, height: 100, shape: { outer: bow.toReversed(), holes: [] } })],
+      }),
+    );
+    expect(crossed.join()).toMatch(/vnější obrys protíná sám sebe/);
+    const sq = (x: number, y: number, w: number) => [
+      { x, y, bulge: 0 },
+      { x: x + w, y, bulge: 0 },
+      { x: x + w, y: y + w, bulge: 0 },
+      { x, y: y + w, bulge: 0 },
+    ];
+    const lOuter = [
+      { x: 0, y: 0, bulge: 0 },
+      { x: 100, y: 0, bulge: 0 },
+      { x: 100, y: 30, bulge: 0 },
+      { x: 30, y: 30, bulge: 0 },
+      { x: 30, y: 100, bulge: 0 },
+      { x: 0, y: 100, bulge: 0 },
+    ];
+    // Otvor v konkávním výřezu L: obalový obdélník sedí, plocha ne.
+    const hole = sq(50, 50, 20).toReversed();
+    const out = msgs(
+      input({
+        parts: [part({ width: 100, height: 100, shape: { outer: lOuter, holes: [hole] } })],
+      }),
+    );
+    expect(out).toEqual(['Díl „Bok": otvor 1 leží mimo díl.']);
   });
 });
