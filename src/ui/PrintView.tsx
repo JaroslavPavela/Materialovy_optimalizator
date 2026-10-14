@@ -3,6 +3,7 @@ import { partColors, writeSheetSvg } from '../core/export/svg.ts';
 import { UNPLACED_REASON_LABEL, type NestingInput, type NestingResult } from '../core/model.ts';
 import { sheetNumbersText, type SheetGroup } from '../core/sheet-groups.ts';
 import { formatArea, formatNumber, formatPercent } from './format.ts';
+import { Logo } from './Logo.tsx';
 
 export type PaperSize = 'A4' | 'A3';
 
@@ -39,7 +40,9 @@ export function PrintView({ input, result, groups, paper, date }: Props) {
     <div className="print-root">
       <style>{`@page { size: ${paper} landscape; margin: 10mm; }`}</style>
       <section className="print-page">
-        <h1>Nářezový plán</h1>
+        <h1>
+          <Logo variant="cerne" height="1.4em" title="" /> Nářezový plán
+        </h1>
         <p>
           {dateText} · tabulí: {count}
           {groups && blocks.length < count && ` (různých: ${blocks.length})`} · využití{' '}

@@ -8,5 +8,6 @@ test('aplikace se načte bez chyb v konzoli', async ({ page }) => {
   page.on('pageerror', (err) => errors.push(err.message));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Materiálový optimalizátor' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Logo' })).toBeVisible();
   expect(errors).toEqual([]);
 });

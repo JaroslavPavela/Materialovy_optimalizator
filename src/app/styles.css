@@ -34,13 +34,18 @@ h2 {
 
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 1rem;
   margin-bottom: 0.75rem;
 }
 
 .app-header p {
   margin: 0;
+}
+
+.logo {
+  display: block;
+  flex: none;
 }
 
 .layout {
@@ -549,6 +554,9 @@ svg .remnant-label {
   }
 
   .print-page h1 {
+    display: flex;
+    align-items: center;
+    gap: 3mm;
     font-size: 16pt;
     margin: 0 0 4mm;
   }
