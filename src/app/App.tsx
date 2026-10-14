@@ -30,12 +30,7 @@ export function App() {
           <ExportPanel />
         </main>
       </div>
-      <footer className="app-footer">
-        Vytvořeno 2026 za pomoci{' '}
-        <a href="https://claude.com/claude-code" target="_blank" rel="noopener noreferrer">
-          Claude Code
-        </a>
-      </footer>
+      <footer className="app-footer">Vytvořil Jaroslav Pavela s Claude Code 2026</footer>
     </div>
   );
 }
