@@ -86,7 +86,7 @@ function SheetCard({ sheet, index }: { sheet: Sheet; index: number }) {
           onChange={(e) => updateSheet(sheet.id, { name: e.target.value })}
         />
       </legend>
-      <div className="grid">
+      <div className="grid sheet-fields">
         <label>
           Šířka (mm)
           <NumberInput

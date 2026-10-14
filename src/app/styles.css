@@ -304,6 +304,23 @@ table.parts input.num {
   font-weight: 600;
 }
 
+/* Šest polí v řádku: čísla úzká, zbytek šířky dostane materiál, tloušťka hned
+   vedle něj. Na úzké kartě dva řádky po třech (materiál a tloušťka spolu). */
+.sheet-card {
+  container-type: inline-size;
+}
+
+.grid.sheet-fields {
+  /* šířka, výška, skladem, okraj, materiál, tloušťka */
+  grid-template-columns: 5.5rem 5.5rem 6.5rem 5rem minmax(6rem, 1fr) 7rem;
+}
+
+@container (max-width: 34rem) {
+  .grid.sheet-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
