@@ -139,9 +139,9 @@ const newId = (prefix: string) =>
 
 export const DEFAULT_SHEET: Sheet = {
   id: 'tabule-1',
-  name: 'DTD 2800 × 2070',
-  width: 2800,
-  height: 2070,
+  name: 'Tabule 3000 × 1500',
+  width: 3000,
+  height: 1500,
   stock: null,
   margin: 10,
   forbiddenZones: [],
@@ -333,9 +333,9 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
         {
           id: newId('dil'),
           name: `Díl ${n}`,
-          width: 500,
-          height: 300,
-          quantity: 1,
+          width: 1750,
+          height: 550,
+          quantity: 5,
           rotation: 'ortho',
         },
       ],

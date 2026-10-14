@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { strFromU8, unzipSync } from 'fflate';
+import { fillFields, TEST_SHEET_AND_PART } from './zadani.ts';
 
 test('výpočet → stažení DXF tabule a ZIP všech tabulí', async ({ page }, testInfo) => {
   const errors: string[] = [];
@@ -12,6 +13,7 @@ test('výpočet → stažení DXF tabule a ZIP všech tabulí', async ({ page },
   await page.goto('/');
 
   await page.getByRole('button', { name: '+ Přidat díl' }).click();
+  await fillFields(page, TEST_SHEET_AND_PART);
   await page.getByLabel('Název dílu 1').fill('Čelo');
   await page.getByLabel('Počet dílu 1').fill('40');
   await page.getByLabel('Počet dílu 1').press('Enter');
@@ -60,6 +62,7 @@ test('výpočet → SVG tabule, ZIP SVG a tisk do PDF (strana na tabuli)', async
   });
   await page.goto('/');
   await page.getByRole('button', { name: '+ Přidat díl' }).click();
+  await fillFields(page, TEST_SHEET_AND_PART);
   await page.getByLabel('Název dílu 1').fill('Čelo <A>');
   await page.getByLabel('Počet dílu 1').fill('40');
   await page.getByLabel('Počet dílu 1').press('Enter');

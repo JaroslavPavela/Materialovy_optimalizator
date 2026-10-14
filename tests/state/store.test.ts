@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { partsFromDxf } from '../../src/core/import/dxf-parts.ts';
-import { DEFAULT_NESTING_PARAMS } from '../../src/core/model.ts';
+import { DEFAULT_NESTING_PARAMS, type Sheet } from '../../src/core/model.ts';
 import { nest } from '../../src/core/nesting/nest.ts';
 import { serializeProject } from '../../src/core/project.ts';
 import { resetAppStore, setNestingClient, useAppStore } from '../../src/state/store.ts';
@@ -29,9 +29,28 @@ const fixture = (name: string) => {
 
 const state = () => useAppStore.getState();
 
+/** Testy nezávisí na výchozí tabuli a dílu aplikace (ty si uživatel může změnit). */
+const TEST_SHEET: Sheet = {
+  id: 'tabule-1',
+  name: 'Test 2800 × 2070',
+  width: 2800,
+  height: 2070,
+  stock: null,
+  margin: 10,
+  forbiddenZones: [],
+};
+
+/** Přidá díl 500 × 300 mm, 1 ks. */
+const addPart = () => {
+  state().addPart();
+  const id = state().parts.at(-1)!.id;
+  state().updatePart(id, { width: 500, height: 300, quantity: 1 });
+};
+
 beforeEach(() => {
   resetAppStore();
   setNestingClient(syncClient);
+  state().loadProject({ parts: [], sheets: [TEST_SHEET], params: DEFAULT_NESTING_PARAMS });
 });
 
 describe('store', () => {
@@ -55,7 +74,7 @@ describe('store', () => {
   });
 
   it('úprava dílu: undefined smaže volitelné pole', () => {
-    state().addPart();
+    addPart();
     const id = state().parts[0]!.id;
     state().updatePart(id, { material: 'DTD', thickness: 18 });
     expect(state().parts[0]).toMatchObject({ material: 'DTD', thickness: 18 });
@@ -65,9 +84,9 @@ describe('store', () => {
   });
 
   it('hromadná úprava a odebrání mění jen díly s danými ID', () => {
-    state().addPart();
-    state().addPart();
-    state().addPart();
+    addPart();
+    addPart();
+    addPart();
     const [a, b, c] = state().parts.map((p) => p.id);
     state().updatePart(c!, { material: 'Plech' });
     state().updateParts([a!, c!], { rotation: 'locked', thickness: 2 });
@@ -90,8 +109,8 @@ describe('store', () => {
   });
 
   it('výpočet uloží výsledek i vstup, ze kterého vznikl', async () => {
-    state().addPart();
-    state().addPart();
+    addPart();
+    addPart();
     await state().calculate();
     const s = state();
     expect(s.status).toBe('done');
@@ -101,7 +120,7 @@ describe('store', () => {
   });
 
   it('neplatné zadání skončí chybou s výčtem problémů', async () => {
-    state().addPart();
+    addPart();
     state().updateSheet(state().sheets[0]!.id, { margin: 5000 });
     await state().calculate();
     expect(state().status).toBe('error');
@@ -110,14 +129,14 @@ describe('store', () => {
   });
 
   it('aktivní tabule se po novém výpočtu omezí na počet tabulí', async () => {
-    state().addPart();
+    addPart();
     state().setActiveSheet(5);
     await state().calculate();
     expect(state().activeSheet).toBe(0);
   });
 
   it('načtení projektu nahradí zadání a smaže výsledek', async () => {
-    state().addPart();
+    addPart();
     await state().calculate();
     const sheets = [{ ...state().sheets[0]!, id: 'jina', name: 'Jiná' }];
     state().loadProject({ parts: [], sheets, params: { ...DEFAULT_NESTING_PARAMS, spacing: 3 } });
@@ -130,7 +149,7 @@ describe('store', () => {
   });
 
   it('import JSON: platný projekt se načte, neplatný zadání nezmění', () => {
-    state().addPart();
+    addPart();
     const text = serializeProject(state(), new Date());
     state().newProject();
     expect(state().parts).toEqual([]);
@@ -171,7 +190,7 @@ describe('store', () => {
     const plate = enc(
       dxf({ entities: [rectPoly(0, 0, 200, 100), circle(50, 50, 10), rectPoly(300, 0, 40, 40)] }),
     );
-    state().addPart();
+    addPart();
     await state().importFiles([{ name: 'plech.DXF', data: plate }]);
     expect(state().parts).toHaveLength(2);
     const dxfPart = state().parts[1]!;
@@ -207,7 +226,7 @@ describe('store', () => {
   });
 
   it('zbytky z výsledku se uloží jako tabule a při dalším výpočtu se použijí přednostně', async () => {
-    state().addPart();
+    addPart();
     await state().calculate();
     expect(state().saveRemnants()).toBe(1);
     const remnant = state().sheets[1]!;
@@ -217,7 +236,7 @@ describe('store', () => {
   });
 
   it('zbytky se pro jeden výsledek uloží jen jednou; použité zbytkové tabule ubydou ze skladu', async () => {
-    state().addPart();
+    addPart();
     await state().calculate();
     expect(state().saveRemnants()).toBe(1);
     expect(state().saveRemnants()).toBe(0);

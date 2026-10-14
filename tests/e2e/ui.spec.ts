@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { fillFields } from './zadani.ts';
 
 const fixture = (name: string) =>
   fileURLToPath(new URL(`../fixtures/csv/${name}`, import.meta.url));
@@ -135,6 +136,7 @@ test('hromadná úprava: všechny díly, rozsah přes Shift, odebrání vybraný
 
   const add = page.getByRole('button', { name: '+ Přidat díl' });
   for (let i = 0; i < 4; i++) await add.click();
+  await fillFields(page, { 'Počet dílu 1': '1' });
   const bulk = page.getByRole('form', { name: 'Hromadná úprava dílů' });
   const apply = bulk.getByRole('button', { name: /^Použít na/ });
 

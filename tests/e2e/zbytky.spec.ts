@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { fillFields, TEST_SHEET_AND_PART } from './zadani.ts';
 
 test('zbytek tabule se uloží do skladu a další výpočet ho použije přednostně', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(err.message));
   await page.goto('/');
   await page.getByRole('button', { name: '+ Přidat díl' }).click();
+  await fillFields(page, TEST_SHEET_AND_PART);
   await page.getByRole('button', { name: 'Vypočítat' }).click();
   const save = page.getByRole('button', { name: /Uložit zbytky do skladu \(1\)/ });
   await save.click();
