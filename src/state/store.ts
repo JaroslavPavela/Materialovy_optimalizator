@@ -16,10 +16,10 @@ import { parseProject, type Project } from '../core/project.ts';
 import { remnantSheets } from '../core/remnants.ts';
 import { createNestingClient, NestingAbortedError, type NestingClient } from '../worker/client.ts';
 
-/** Výsledek načtení jednoho souboru s díly (CSV nebo DXF). */
+/** Výsledek načtení jednoho souboru s díly (CSV, DXF nebo DWG). */
 export interface ImportReport {
   readonly fileName: string;
-  readonly kind: 'csv' | 'dxf';
+  readonly kind: 'csv' | 'dxf' | 'dwg';
   readonly partCount: number;
   readonly errors: readonly string[];
   readonly warnings: readonly string[];
@@ -46,7 +46,7 @@ export interface AppState {
   readonly params: NestingParams;
   /** Hlášení posledního importu po souborech. */
   readonly importReports: readonly ImportReport[];
-  /** Režim importu DXF: 1 soubor = 1 díl, nebo každý vnější obrys = díl. */
+  /** Režim importu DXF/DWG: 1 soubor = 1 díl, nebo každý vnější obrys = díl. */
   readonly dxfMode: DxfPartMode;
   readonly projectReport: ProjectReport | null;
   /** Uložené formáty tabulí – sdílené mezi projekty. */
@@ -73,7 +73,7 @@ export interface AppState {
 export interface AppActions {
   /**
    * Načte soubory s díly: CSV nahradí seznam dílů (další soubory dávky už
-   * přidávají), DXF díly přidá. Podle přípony .dxf, jinak CSV.
+   * přidávají), DXF a DWG díly přidá. Podle přípony .dxf/.dwg, jinak CSV.
    */
   importFiles(files: readonly ImportFile[]): Promise<void>;
   importCsv(fileName: string, data: ArrayBuffer): Promise<void>;
@@ -287,15 +287,16 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     let replaced = false;
     const reports: ImportReport[] = [];
     for (const f of files) {
-      if (/\.dxf$/i.test(f.name)) {
-        const r = await getClient().importDxf(f.name, f.data, {
+      const drawing = /\.(dxf|dwg)$/i.exec(f.name)?.[1]?.toLowerCase() as 'dxf' | 'dwg' | undefined;
+      if (drawing) {
+        const r = await getClient().importDrawing(f.name, f.data, {
           mode: get().dxfMode,
-          idPrefix: newId('dxf'),
+          idPrefix: newId(drawing),
         });
         parts = [...parts, ...r.parts];
         reports.push({
           fileName: f.name,
-          kind: 'dxf',
+          kind: drawing,
           partCount: r.parts.length,
           errors: r.errors,
           warnings: r.warnings,

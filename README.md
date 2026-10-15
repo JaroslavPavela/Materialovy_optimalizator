@@ -1,7 +1,8 @@
 # Materiálový optimalizátor
 
 Webová aplikace pro tvorbu nářezových plánů pro CNC (frézka, vysekávací lis).
-Díly zadané v CSV (obdélníky) nebo DXF (skutečné tvary s oblouky a otvory)
+Díly zadané v CSV (obdélníky) nebo DXF či DWG (skutečné tvary s oblouky a
+otvory)
 rozmístí na tabule s co nejlepším využitím materiálu a plán vyexportuje do
 DXF pro CAM, SVG, CSV a tisku / PDF.
 
@@ -41,9 +42,9 @@ ani zvláštní hlavičky (SharedArrayBuffer se nepoužívá).
 
 ## Použití
 
-1. **Díly** – přetáhněte soubory CSV nebo DXF do pole _Díly z CSV nebo DXF_
-   (lze víc souborů najednou), nebo je přidejte ručně v tabulce dílů.
-   CSV nahradí seznam dílů, díly z DXF se přidají. U každého dílu zadáte
+1. **Díly** – přetáhněte soubory CSV, DXF nebo DWG do pole _Díly z CSV, DXF
+   nebo DWG_ (lze víc souborů najednou), nebo je přidejte ručně v tabulce
+   dílů. CSV nahradí seznam dílů, díly z DXF a DWG se přidají. U každého dílu zadáte
    počet kusů a povolené natočení. Řádek _Hromadně_ nad tabulkou nastaví
    rotaci, počet, materiál nebo tloušťku všem dílům, nebo jen vybraným
    (zaškrtávací pole, Shift + klik vybere rozsah); vyplněná pole se použijí,
@@ -118,6 +119,17 @@ Neuzavřené kontury, větvení (čára přes obrys, ohyb ve stejné vrstvě),
 samoprůniky a překrývající se obrysy se hlásí srozumitelnou chybou s místem
 ve výkresu; díl, kterého se chyba týká, se nepoužije.
 
+## Podporované DWG
+
+Čtou se DWG z AutoCADu R14 až 2018 a novějších, které ukládají ve formátu
+2018 (AC1014–AC1032). Výkres se v prohlížeči převede na DXF (knihovna
+[acad-ts](https://github.com/node-projects/acad-ts), MIT) a dál se zpracuje
+stejně jako DXF – platí tedy stejné entity, jednotky, sestavení obrysů
+i hlášení. Formát R14 neukládá jednotky výkresu, předpokládají se mm
+s varováním. Starší DWG (R13 a dřív) se nečtou; uložte je v CADu jako DXF
+nebo novější DWG. Knihovna pro DWG (~0,8 MB) se stáhne až při prvním
+souboru DWG.
+
 ## Export DXF
 
 DXF R12 (AC1009) ASCII v mm – přečte ho prakticky každý CAM. Vrstvy
@@ -140,6 +152,9 @@ G-kód ani pořadí řezů se negenerují – to je úloha CAM.
   chybný (větvení) – je potřeba ho v CADu vyčistit.
 - Normála entit musí mířit v ose Z (±Z); entity v natočené rovině se
   přeskočí.
+- DWG čte knihovna třetí strany (reverzní inženýrství formátu). Některé
+  objekty výkresu se přečíst nemusí – aplikace na to upozorní. Když díl
+  z DWG chybí nebo nesedí, uložte výkres v CADu jako DXF.
 
 ## Vývoj
 

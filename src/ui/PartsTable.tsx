@@ -107,12 +107,12 @@ export function PartsTable() {
                   />
                 </td>
                 {p.shape ? (
-                  // Rozměry tvaru z DXF plynou z obrysu – needitují se.
+                  // Rozměry tvaru z DXF/DWG plynou z obrysu – needitují se.
                   <>
-                    <td className="num-ro" title="Rozměr obalového obdélníku tvaru z DXF">
+                    <td className="num-ro" title="Rozměr obalového obdélníku tvaru z výkresu">
                       <span aria-label={`Šířka dílu ${i + 1}`}>{formatNumber(p.width, 2)}</span>
                     </td>
-                    <td className="num-ro" title="Rozměr obalového obdélníku tvaru z DXF">
+                    <td className="num-ro" title="Rozměr obalového obdélníku tvaru z výkresu">
                       <span aria-label={`Výška dílu ${i + 1}`}>{formatNumber(p.height, 2)}</span>
                     </td>
                   </>

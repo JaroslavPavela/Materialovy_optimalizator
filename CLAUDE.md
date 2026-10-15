@@ -1,7 +1,7 @@
 # Materiálový optimalizátor – nářezové plány pro CNC
 
 Webová aplikace (jen frontend, bez serveru) pro tvorbu nářezových plánů.
-Vstup: CSV (rozměry a počty obdélníkových dílů) nebo DXF (tvary dílů).
+Vstup: CSV (rozměry a počty obdélníkových dílů) nebo DXF či DWG (tvary dílů).
 Výstup: rozmístění dílů na tabule pro CNC (frézka, vysekávací lis) a export.
 Komunikuj česky, UI aplikace je česky.
 
@@ -50,14 +50,14 @@ src/
   core/                     čisté jádro – bez Reactu, DOM a prohlížečových API
     model.ts                Part, Sheet, NestingParams, Placement, NestingResult, ForbiddenZone
     geometry/               polygony, transformace, offset, EPS
-    import/                 csv.ts, dxf.ts
+    import/                 csv.ts, dxf.ts, dwg.ts (DWG → DXF přes acad-ts)
     nesting/                maxrects.ts, nfp.ts, placer.ts, optimizer.ts
     export/                 dxf-writer.ts, svg.ts, csv.ts
     metrics.ts              využití, odpad, zbytky
   worker/                   nesting.worker.ts (Comlink)
   storage/                  db.ts (Dexie)
 tests/
-  fixtures/csv/, fixtures/dxf/   testovací vzorky (existující soubory neměnit)
+  fixtures/csv/, dxf/, dwg/   testovací vzorky (existující soubory neměnit)
   core/                     jednotkové a property testy
   e2e/                      Playwright
 docs/                       format-csv.md, zavislosti.md, rozhodnuti/

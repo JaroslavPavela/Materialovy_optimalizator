@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_NESTING_PARAMS, type NestingInput } from '../../src/core/model.ts';
 import { nest, type NestProgress } from '../../src/core/nesting/nest.ts';
@@ -72,6 +73,22 @@ describe('NestingService', () => {
     const [a, b] = await Promise.all([first, second]);
     expect(a.ok && a.stopped).toBe(true);
     expect(b.ok && b.stopped).toBe(false);
+  });
+
+  it('importDrawing pozná DWG podle obsahu, ne podle přípony', async () => {
+    const service = createNestingService();
+    const read = (name: string) => {
+      const buf = readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    };
+    const opts = { mode: 'multi', idPrefix: 'd' } as const;
+    const fromDwg = await service.importDrawing('a.dxf', read('dwg/vice-dilu-ac1027.dwg'), opts);
+    const fromDxf = await service.importDrawing('a.dxf', read('dxf/vice-dilu.dxf'), opts);
+    expect(fromDwg.errors).toEqual([]);
+    expect(fromDwg.parts).toHaveLength(4);
+    expect(fromDwg.parts.map((p) => [p.width, p.height])).toEqual(
+      fromDxf.parts.map((p) => [expect.closeTo(p.width, 6), expect.closeTo(p.height, 6)]),
+    );
   });
 });
 

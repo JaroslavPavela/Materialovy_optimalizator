@@ -9,8 +9,12 @@ export interface NestingClient {
   nest(input: NestingInput, onProgress?: (p: NestProgress) => void): Promise<NestOutcome>;
   /** Zastaví výpočet; `nest` se vrátí s nejlepším dosavadním výsledkem. */
   stop(): Promise<void>;
-  /** Díly z DXF – čtení probíhá ve workeru. */
-  importDxf(fileName: string, data: ArrayBuffer, opts: DxfImportOptions): Promise<DxfPartsResult>;
+  /** Díly z DXF nebo DWG – čtení probíhá ve workeru. */
+  importDrawing(
+    fileName: string,
+    data: ArrayBuffer,
+    opts: DxfImportOptions,
+  ): Promise<DxfPartsResult>;
   /** Okamžitě ukončí worker (běžící `nest` skončí chybou) a připraví nový. */
   abort(): void;
   /** Ukončí worker natrvalo. */
@@ -50,8 +54,8 @@ export function createNestingClient(): NestingClient {
     stop() {
       return remote.stop();
     },
-    importDxf(fileName, data, opts) {
-      return remote.importDxf(fileName, data, opts);
+    importDrawing(fileName, data, opts) {
+      return remote.importDrawing(fileName, data, opts);
     },
     abort() {
       worker.terminate();

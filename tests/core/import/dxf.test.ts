@@ -162,6 +162,25 @@ describe('entity', () => {
     expect(r.warnings.join()).toMatch(/POLYLINE \(síť\)/);
   });
 
+  it('POLYLINE bez SEQEND (i bez vrcholů) skončí u další entity – dxf-parser se zacyklil', () => {
+    const v = (x: number, y: number): G[] => [
+      [0, 'VERTEX'],
+      [8, 'DIL'],
+      [10, x],
+      [20, y],
+    ];
+    const empty = ent('POLYLINE', [66, 1], [10, 0], [20, 0], [30, 0], [70, 1]);
+    const open: G[] = [
+      ...ent('POLYLINE', [66, 1], [10, 0], [20, 0], [30, 0], [70, 1]),
+      ...v(0, 0),
+      ...v(10, 0),
+      ...v(10, 10),
+    ];
+    const r = read(dxf({ entities: [empty, open, empty, line(0, 0, 5, 5)] }));
+    expect(r.segments).toHaveLength(4);
+    expect(r.segments[3]).toMatchObject({ a: { x: 0, y: 0 }, b: { x: 5, y: 5 } });
+  });
+
   it('ELLIPSE: body na elipse v toleranci, uzavřená smyčka', () => {
     const e = ent(
       'ELLIPSE',

@@ -3,6 +3,7 @@ import {
   type DxfPartsOptions,
   type DxfPartsResult,
 } from '../core/import/dxf-parts.ts';
+import { dwgVersionCode } from '../core/import/dwg-format.ts';
 import type { NestingInput, NestingResult } from '../core/model.ts';
 import { nestSteps, type NestOutcome, type NestProgress } from '../core/nesting/nest.ts';
 
@@ -21,13 +22,18 @@ export interface NestingService {
   /** Zastaví běžící výpočet; ten skončí s nejlepším dosavadním výsledkem. */
   stop(): void;
   /**
-   * Díly z DXF (čtení, sestavení kontur) – ve workeru, aby velký výkres
-   * neblokoval UI a dxf-parser s Clipperem nebyly v hlavním balíku.
+   * Díly z výkresu DXF nebo DWG (podle obsahu, ne přípony) – ve workeru, aby
+   * velký výkres neblokoval UI a dxf-parser s Clipperem nebyly v hlavním
+   * balíku. Čtení DWG (acad-ts) se načte až u prvního souboru DWG.
    */
-  importDxf(fileName: string, data: ArrayBuffer, opts: DxfImportOptions): DxfPartsResult;
+  importDrawing(
+    fileName: string,
+    data: ArrayBuffer,
+    opts: DxfImportOptions,
+  ): Promise<DxfPartsResult>;
 }
 
-/** Volby importu DXF přenositelné do workeru (bez funkcí). */
+/** Volby importu DXF/DWG přenositelné do workeru (bez funkcí). */
 export type DxfImportOptions = Pick<DxfPartsOptions, 'mode' | 'idPrefix' | 'rotation'>;
 
 /** Předá řízení smyčce událostí, aby worker stihl přijmout `stop()`. */
@@ -80,7 +86,11 @@ export function createNestingService(
     stop() {
       stopRequested = currentJob;
     },
-    importDxf(fileName, data, opts) {
+    async importDrawing(fileName, data, opts) {
+      if (dwgVersionCode(data)) {
+        const { partsFromDwg } = await import('../core/import/dwg.ts');
+        return partsFromDwg(fileName, data, opts);
+      }
       return partsFromDxf(fileName, data, opts);
     },
   };

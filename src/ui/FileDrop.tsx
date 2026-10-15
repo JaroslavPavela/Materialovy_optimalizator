@@ -7,7 +7,7 @@ const DXF_MODES: readonly { value: DxfPartMode; label: string }[] = [
   { value: 'multi', label: 'více dílů v souboru' },
 ];
 
-/** Nahrání dílů z CSV nebo DXF – přetažením nebo výběrem, i víc souborů najednou. */
+/** Nahrání dílů z CSV, DXF nebo DWG – přetažením nebo výběrem, i víc souborů najednou. */
 export function FileDrop() {
   const importFiles = useAppStore((s) => s.importFiles);
   const reports = useAppStore((s) => s.importReports);
@@ -26,7 +26,7 @@ export function FileDrop() {
 
   return (
     <section className="panel">
-      <h2>Díly z CSV nebo DXF</h2>
+      <h2>Díly z CSV, DXF nebo DWG</h2>
       <div
         className={`drop ${over ? 'over' : ''}`}
         onDragOver={(e) => {
@@ -40,7 +40,7 @@ export function FileDrop() {
           void load(e.dataTransfer.files);
         }}
       >
-        <p>Přetáhněte sem soubory CSV nebo DXF, nebo</p>
+        <p>Přetáhněte sem soubory CSV, DXF nebo DWG, nebo</p>
         <button type="button" onClick={() => input.current?.click()}>
           Vybrat soubory…
         </button>
@@ -48,7 +48,7 @@ export function FileDrop() {
           ref={input}
           type="file"
           multiple
-          accept=".csv,.tsv,.txt,.dxf,text/csv"
+          accept=".csv,.tsv,.txt,.dxf,.dwg,text/csv"
           aria-label="Soubory s díly"
           hidden
           onChange={(e) => {
@@ -58,7 +58,7 @@ export function FileDrop() {
         />
       </div>
       <fieldset className="dxf-mode">
-        <legend>DXF</legend>
+        <legend>DXF a DWG</legend>
         {DXF_MODES.map((m) => (
           <label key={m.value}>
             <input
@@ -72,7 +72,7 @@ export function FileDrop() {
           </label>
         ))}
       </fieldset>
-      <p className="muted hint">CSV nahradí seznam dílů, díly z DXF se přidají.</p>
+      <p className="muted hint">CSV nahradí seznam dílů, díly z DXF a DWG se přidají.</p>
       {reports.map((r, i) => (
         <div key={i} className="import-report" role="status">
           <p>

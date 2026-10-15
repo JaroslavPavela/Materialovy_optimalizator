@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { partsFromDxf } from '../../src/core/import/dxf-parts.ts';
 import { DEFAULT_NESTING_PARAMS, type Sheet } from '../../src/core/model.ts';
 import { nest } from '../../src/core/nesting/nest.ts';
 import { serializeProject } from '../../src/core/project.ts';
 import { resetAppStore, setNestingClient, useAppStore } from '../../src/state/store.ts';
 import { circle, dxf, rectPoly } from '../core/import/dxf-builder.ts';
 import type { NestingClient } from '../../src/worker/client.ts';
+import { createNestingService } from '../../src/worker/service.ts';
 
 /** Klient bez workeru – počítá synchronně v testu. */
 const syncClient: NestingClient = {
@@ -17,7 +17,7 @@ const syncClient: NestingClient = {
     return Promise.resolve(outcome);
   },
   stop: () => Promise.resolve(),
-  importDxf: (name, data, opts) => Promise.resolve(partsFromDxf(name, data, opts)),
+  importDrawing: (name, data, opts) => createNestingService().importDrawing(name, data, opts),
   abort: () => {},
   dispose: () => {},
 };
@@ -209,6 +209,21 @@ describe('store', () => {
     expect(state().parts.filter((p) => p.shape)).toHaveLength(2);
     expect(state().importReports.map((r) => r.kind)).toEqual(['csv', 'dxf']);
     expect(new Set(state().parts.map((p) => p.id)).size).toBe(state().parts.length);
+  });
+
+  it('import DWG: díly se přidají, hlášení s druhem dwg', async () => {
+    const buf = readFileSync(new URL('../fixtures/dwg/vice-dilu-ac1027.dwg', import.meta.url));
+    const data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    state().setDxfMode('multi');
+    await state().importFiles([{ name: 'vice-dilu.DWG', data }]);
+    expect(state().parts.map((p) => p.name)).toEqual([
+      'vice-dilu-1',
+      'vice-dilu-2',
+      'vice-dilu-3',
+      'vice-dilu-4',
+    ]);
+    expect(state().parts.every((p) => p.shape)).toBe(true);
+    expect(state().importReports).toMatchObject([{ kind: 'dwg', partCount: 4, errors: [] }]);
   });
 
   it('výpočet s díly z DXF projde validací a umístí je', async () => {

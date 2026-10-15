@@ -137,12 +137,22 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 - [x] 7.3 Finální kontrola: lint, typecheck, test, e2e, build bez chyb
       a varování; push.
 
+## Fáze 8 – Import DWG (na přání uživatele)
+
+- [x] 8.1 `core/import/dwg.ts`: DWG (AutoCAD R14–2018, AC1014–AC1032) přes
+      knihovnu s povolenou licencí převést na DXF a zpracovat stejnou cestou
+      jako DXF; starší a poškozené DWG srozumitelnou chybou. Import ve
+      workeru, knihovna DWG se načte až u souboru DWG. UI přijímá `.dwg`.
+      Hotovo: testy – DWG vzorky všech verzí dají stejné díly jako zdrojové
+      DXF, výkres z AutoCADu dá stejné díly jako DXF uložené AutoCADem;
+      E2E nahraj DWG → plán.
+
 ---
 
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: fix: opravy z revize kroku 7.1 – zjednodušení oblouků, cache důvodů neumístění, IFP otvoru (krok 7.1)
+Poslední commit: feat: import dílů z DWG (krok 8.1)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -481,3 +491,25 @@ BLOKOVÁNO: ne
   které pak zamítala až pojistka kandidátů).
 - Po fázi 7: uživatel nastavil remote `origin` (GitHub) a větev `main`
   je odeslaná a sleduje `origin/main`.
+- 8.1: Čtení DWG: `@node-projects/acad-ts` 3.3.0 (MIT, port ACadSharp do
+  TypeScriptu), verze přišpendlená. Ostatní knihovny DWG pro prohlížeč jsou
+  GPL (LibreDWG, libdxfrw) nebo obsahují acadrust pod MPL-2.0 – viz
+  docs/zavislosti.md. DWG se převede na ASCII DXF a čte stávajícím
+  `readDxf`, takže jednotky, entity, bloky, sestavení obrysů a hlášení jsou
+  pro DXF i DWG společné. DWG se pozná podle hlavičky (`AC10xx`), ne podle
+  přípony. acad-ts vybírá mapování entit podle `constructor.name` – build
+  workeru proto má `keepNames` (worker +13 kB); minifikace bez něj rozbila
+  čtení jen v produkčním buildu, hlídá to E2E. Knihovna je v samostatném
+  bloku (~0,8 MB), který worker načte až u prvního DWG; hlavní balík beze
+  změny. Metoda workeru `importDxf` přejmenována na `importDrawing`.
+  Nalezená a opravená chyba DXF importu: dxf-parser se zacyklil na POLYLINE
+  bez SEQEND (vlastní obsluha POLYLINE v dxf.ts). Vzorky: 7 DWG zapsaných
+  acad-ts z DXF vzorků (každá verze R14–2018, `tests/fixtures/generate-dwg.ts`)
+  a výkres z AutoCADu 2004 z repozitáře ACadSharp (MIT, 1,1 MB) – očekávání
+  z DXF, které AutoCAD uložil ze stejného výkresu (21 dílů, shoda rozměrů,
+  otvorů i ploch). Generátor obchází dvě chyby zápisu v acad-ts (POLYLINE
+  bez vrcholů, ztráta uzavření u DXF R12) převodem na LWPOLYLINE.
+  Generátor a vzorek `plan-polyline-ac1015.dwg` vznikly napoprvé s chybou;
+  hook chránící vzorky je nedovolil opravit, uživatel je smazal a vytvořily
+  se znovu opraveným generátorem. Kontrola: lint, typecheck, 500 testů,
+  24 e2e a build bez chyb a varování.

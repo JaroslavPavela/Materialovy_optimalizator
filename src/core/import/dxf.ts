@@ -125,8 +125,8 @@ const NORMAL_EPS = 1e-6;
 
 // ---------------------------------------------------------------------------
 // Vlastní obsluha entit pro dxf-parser: CIRCLE a ELLIPSE bez ní ztratí směr
-// extruze (zrcadlené kružnice z rozvinů), SPLINE váhy (kód 41) a entity bez
-// obsluhy by parser hlásil do konzole.
+// extruze (zrcadlené kružnice z rozvinů), SPLINE váhy (kód 41), POLYLINE bez
+// SEQEND parser zacyklí a entity bez obsluhy by parser hlásil do konzole.
 
 interface Group {
   readonly code: number;
@@ -136,6 +136,8 @@ interface Group {
 interface Scanner {
   next(): Group;
   isEOF(): boolean;
+  /** Poslední přečtená skupina (po `readGroups` ta s kódem 0). */
+  readonly lastReadGroup: Group;
 }
 
 /** Načte skupiny entity až po další skupinu s kódem 0 (ta zůstane přečtená). */
@@ -208,6 +210,40 @@ const SplineHandler = groupHandler('SPLINE', (g) => ({
   flags: valuesOf(g, 70)[0] ?? 0,
 }));
 
+/**
+ * POLYLINE s vrcholy až po SEQEND. Obsluha dxf-parseru se zacyklí, chybí-li
+ * SEQEND (za posledním VERTEX rovnou další entita) – tady polyline ukončí
+ * jakákoli jiná entita.
+ */
+class PolylineHandler {
+  readonly ForEntityName = 'POLYLINE';
+  parseEntity(scanner: Scanner, curr: Group) {
+    const groups = readGroups(scanner);
+    const flags = valuesOf(groups, 70)[0] ?? 0;
+    const vertices: object[] = [];
+    while (!scanner.isEOF() && scanner.lastReadGroup.value === 'VERTEX') {
+      const v = readGroups(scanner);
+      const p = pointsOf(v, 10)[0];
+      if (!p) continue;
+      vertices.push({
+        ...p,
+        bulge: valuesOf(v, 42)[0] ?? 0,
+        splineControlPoint: ((valuesOf(v, 70)[0] ?? 0) & 16) !== 0,
+      });
+    }
+    if (!scanner.isEOF() && scanner.lastReadGroup.value === 'SEQEND') readGroups(scanner);
+    return {
+      type: curr.value,
+      ...commonProps(groups),
+      shape: (flags & 1) !== 0,
+      is3dPolyline: (flags & 8) !== 0,
+      is3dPolygonMesh: (flags & 16) !== 0,
+      isPolyfaceMesh: (flags & 64) !== 0,
+      vertices,
+    };
+  }
+}
+
 const ignoredHandlers = [...IGNORED]
   .filter((t) => !['TEXT', 'MTEXT', 'DIMENSION', 'POINT', 'ATTDEF', 'SOLID', '3DFACE'].includes(t))
   .map((t) => groupHandler(t, () => ({})));
@@ -215,7 +251,13 @@ const ignoredHandlers = [...IGNORED]
 function createParser(): DxfParser {
   const parser = new DxfParser();
   type HandlerClass = Parameters<DxfParser['registerEntityHandler']>[0];
-  for (const h of [CircleHandler, EllipseHandler, SplineHandler, ...ignoredHandlers]) {
+  for (const h of [
+    CircleHandler,
+    EllipseHandler,
+    SplineHandler,
+    PolylineHandler,
+    ...ignoredHandlers,
+  ]) {
     parser.registerEntityHandler(h as unknown as HandlerClass);
   }
   return parser;

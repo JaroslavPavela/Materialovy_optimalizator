@@ -15,6 +15,7 @@
     "bench": "vitest run tests/bench"
   },
   "dependencies": {
+    "@node-projects/acad-ts": "3.3.0",
     "clipper-lib": "^6.4.2",
     "comlink": "^4.4.2",
     "dexie": "^4.4.6",

@@ -6,20 +6,28 @@ nainstalovaných balíků.
 
 ## Běhové závislosti (jsou v buildu aplikace)
 
-| Balík       | Verze  | Licence                       | Účel                        |
-| ----------- | ------ | ----------------------------- | --------------------------- |
-| react       | 19.3.0 | MIT                           | UI                          |
-| react-dom   | 19.3.0 | MIT                           | UI                          |
-| zustand     | 5.0.15 | MIT                           | stav aplikace               |
-| papaparse   | 5.7.0  | MIT                           | čtení CSV                   |
-| dxf-parser  | 1.1.2  | MIT                           | čtení DXF                   |
-| clipper-lib | 6.4.2  | BSL-1.0 (Boost Software Lic.) | offsety, Minkowského součet |
-| comlink     | 4.4.2  | Apache-2.0                    | Web Worker                  |
-| dexie       | 4.4.6  | Apache-2.0                    | IndexedDB                   |
-| fflate      | 0.8.3  | MIT                           | ZIP export                  |
+| Balík                  | Verze  | Licence                       | Účel                                  |
+| ---------------------- | ------ | ----------------------------- | ------------------------------------- |
+| react                  | 19.3.0 | MIT                           | UI                                    |
+| react-dom              | 19.3.0 | MIT                           | UI                                    |
+| zustand                | 5.0.15 | MIT                           | stav aplikace                         |
+| papaparse              | 5.7.0  | MIT                           | čtení CSV                             |
+| dxf-parser             | 1.1.2  | MIT                           | čtení DXF                             |
+| clipper-lib            | 6.4.2  | BSL-1.0 (Boost Software Lic.) | offsety, Minkowského součet           |
+| comlink                | 4.4.2  | Apache-2.0                    | Web Worker                            |
+| dexie                  | 4.4.6  | Apache-2.0                    | IndexedDB                             |
+| fflate                 | 0.8.3  | MIT                           | ZIP export                            |
+| @node-projects/acad-ts | 3.3.0  | MIT                           | čtení DWG (načte se až u souboru DWG) |
 
 `clipper-lib` má v `package.json` jen zkratku „BSL"; hlavička `clipper.js`
 výslovně uvádí _Boost Software License Ver 1_ (ne Business Source License).
+
+`@node-projects/acad-ts` (ověřeno 2026-10-15) je port C# knihovny ACadSharp
+(MIT) do TypeScriptu, bez dalších závislostí. Zamítnuté alternativy pro DWG:
+`@mlightcad/libredwg-web` a `libredwg-web-ts` (GPL – LibreDWG),
+`@mlightcad/libdxfrw-web` (GPL-2.0), `dwg2dxf-converter` (v `package.json`
+MIT, ale obsahuje LibreDWG pod GPL) a `dwgdxf` (MIT, ale obsahuje acadrust
+pod MPL-2.0, která není mezi povolenými licencemi).
 
 ## Vývojové závislosti (nejsou v buildu)
 
