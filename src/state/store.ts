@@ -68,7 +68,11 @@ export interface AppState {
   readonly activeSheet: number;
   /** Shodné tabule výsledku zobrazit a exportovat jednou s počtem opakování. */
   readonly groupSheets: boolean;
+  /** Náhled plánu: jedna tabule s přiblížením, nebo přehled všech tabulí. */
+  readonly planView: PlanViewMode;
 }
+
+export type PlanViewMode = 'single' | 'all';
 
 export interface AppActions {
   /**
@@ -113,6 +117,9 @@ export interface AppActions {
   stop(): Promise<void>;
   setActiveSheet(index: number): void;
   setGroupSheets(grouped: boolean): void;
+  setPlanView(mode: PlanViewMode): void;
+  /** Otevře tabuli `index` v náhledu jedné tabule. */
+  openSheet(index: number): void;
 }
 
 /** Částečná změna objektu; hodnota `undefined` pole odstraní. */
@@ -164,6 +171,7 @@ const initialState: AppState = {
   error: null,
   activeSheet: 0,
   groupSheets: true,
+  planView: 'single',
 };
 
 /** Stav, který se při načtení jiného projektu vrátí na začátek. */
@@ -469,6 +477,14 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   setGroupSheets(grouped) {
     set({ groupSheets: grouped });
+  },
+
+  setPlanView(mode) {
+    set({ planView: mode });
+  },
+
+  openSheet(index) {
+    set({ activeSheet: index, planView: 'single' });
   },
 }));
 

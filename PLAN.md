@@ -152,13 +152,17 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       a sečte se počet, jiný tvar se stejným textem zůstane zvlášť
       s upozorněním. Režim „1 soubor = 1 díl" dál podle souboru.
       Hotovo: jednotkové a property testy, očekávání názvů ve vzorcích.
+- [x] 8.3 Přehled všech tabulí: v náhledu plánu přepínač „Jedna tabule" /
+      „Všechny tabule"; přehled ukáže všechny tabule (nebo skupiny shodných
+      tabulí) se skutečnými tvary dílů, kliknutí tabuli otevře samostatně.
+      Hotovo: E2E přepnutí → všechny tabule s díly → otevření tabule.
 
 ---
 
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: feat: názvy dílů z textu ve výkresu (krok 8.2)
+Poslední commit: feat: přehled všech tabulí v náhledu plánu (krok 8.3)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -534,3 +538,9 @@ BLOKOVÁNO: ne
   zrcadlený text) – opraveny, každý má regresní test. E2E exportu DXF
   počítá se sloučením dílů při zpětném importu (popisky v exportu jsou
   názvy dílů). Kontrola: lint, typecheck, 522 testů, 24 e2e, build.
+- 8.3: Na přání uživatele (bez nového kroku v plánu na začátku – doplněn).
+  Přehled respektuje volbu „Seskupit stejné tabule". Vykresluje se po 24
+  tabulích, další přidá tlačítko (výsledek s 1387 tabulemi: přehled 0,36 s).
+  Kreslení tabule je společné pro náhled i přehled (`SheetDrawing`); vzor
+  šrafování zón má jedinečné ID (`useId`), proto už není v CSS. Volba
+  zobrazení je ve store (`planView`, `openSheet`) a neukládá se do projektu.

@@ -58,7 +58,9 @@ ani zvláštní hlavičky (SharedArrayBuffer se nepoužívá).
    tažením se plán posouvá). Výpočet lze kdykoli zastavit a použít nejlepší
    dosavadní plán. Volba _Seskupit stejné tabule_ (výchozí zapnuto) ukáže
    tabule se shodným rozmístěním jednou s počtem opakování (např. „× 10“);
-   po vypnutí se vypíše každá tabule zvlášť.
+   po vypnutí se vypíše každá tabule zvlášť. Přepínač _Jedna tabule /
+   Všechny tabule_ ukáže přehled všech tabulí v mřížce (po 24, další
+   tlačítkem); kliknutím na tabuli v přehledu se otevře samostatně.
 5. **Export** – DXF jedné tabule nebo všech (ZIP), SVG, CSV seznam dílů,
    tisk / PDF (A4 nebo A3 na šířku, jedna tabule na stránku). Při seskupení
    se stejné tabule exportují jednou: počet opakování je v názvu souboru

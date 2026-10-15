@@ -135,6 +135,15 @@ describe('store', () => {
     expect(state().activeSheet).toBe(0);
   });
 
+  it('náhled: přehled všech tabulí a otevření jedné tabule z přehledu', () => {
+    expect(state().planView).toBe('single');
+    state().setPlanView('all');
+    expect(state().planView).toBe('all');
+    state().openSheet(3);
+    expect(state().planView).toBe('single');
+    expect(state().activeSheet).toBe(3);
+  });
+
   it('načtení projektu nahradí zadání a smaže výsledek', async () => {
     addPart();
     await state().calculate();

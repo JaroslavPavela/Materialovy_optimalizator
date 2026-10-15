@@ -90,6 +90,53 @@ test('import CSV → více tabulí → přepínání záložkami', async ({ page
   expect(errors).toEqual([]);
 });
 
+test('přehled všech tabulí → otevření tabule z přehledu', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+
+  await page.getByLabel('Soubory s díly').setInputFiles(fixture('utf8-bom.csv'));
+  await expect(page.getByRole('status').filter({ hasText: 'utf8-bom.csv' })).toBeVisible();
+  await fillFields(page, { 'Šířka tabule 1': '1000', 'Výška tabule 1': '700' });
+  // Bez seskupení má přehled kartu pro každou tabuli výsledku.
+  await page.getByRole('button', { name: 'Vypočítat' }).click();
+  await page.getByLabel('Seskupit stejné tabule').uncheck();
+  const tabs = page.getByRole('tab');
+  await expect(tabs.first()).toBeVisible();
+  const count = await tabs.count();
+  expect(count).toBeGreaterThan(1);
+  const total = page.locator('.plan-toolbar .muted');
+  await expect(total).toHaveText(`${count} tabulí`);
+
+  await page.getByRole('button', { name: 'Všechny tabule' }).click();
+  await expect(page.getByRole('button', { name: 'Všechny tabule' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(tabs).toHaveCount(0);
+  await expect(page.getByRole('img', { name: /Plán tabule/ })).toHaveCount(0);
+  const thumbs = page.getByRole('img', { name: /^Náhled tabule/ });
+  await expect(thumbs).toHaveCount(count);
+  // Každá tabule má skutečné tvary dílů; součet kusů odpovídá výsledku.
+  const perSheet = await thumbs.evaluateAll((els) =>
+    els.map((e) => e.querySelectorAll('path.part').length),
+  );
+  expect(perSheet.every((n) => n > 0)).toBe(true);
+  const placed = await page.getByText(/^\d+ \/ \d+ ks$/).textContent();
+  expect(perSheet.reduce((a, b) => a + b, 0)).toBe(Number(placed!.split(' ')[0]));
+
+  // Kliknutí na druhou tabuli ji otevře v náhledu jedné tabule.
+  await page.getByRole('button', { name: /^Otevřít tabuli 2\. / }).click();
+  await expect(page.getByRole('button', { name: 'Jedna tabule' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+  const plan = page.getByRole('img', { name: /Plán tabule/ });
+  await expect(plan.locator('path.part')).toHaveCount(perSheet[1]!);
+
+  expect(errors).toEqual([]);
+});
+
 test('velký soubor: průběh, zastavení a přepínání výběrem', async ({ page }) => {
   // 10 389 kusů: jeden krok MaxRects trvá několik sekund (výkon řeší krok 5.7).
   // Lokátory jsou CSS – getByRole s názvem počítá přístupná jména všech

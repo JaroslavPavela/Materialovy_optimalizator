@@ -481,7 +481,6 @@ svg .margin {
 }
 
 svg .zone {
-  fill: url(#zone-hatch);
   stroke: var(--danger);
   stroke-width: 1px;
   vector-effect: non-scaling-stroke;
@@ -641,4 +640,76 @@ svg .remnant-label {
     padding: 1mm 2mm;
     text-align: left;
   }
+}
+
+.view-switch {
+  display: inline-flex;
+}
+
+.view-switch button {
+  border-radius: 0;
+}
+
+.view-switch button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.view-switch button:last-child {
+  border-radius: 0 6px 6px 0;
+  margin-left: -1px;
+}
+
+.view-switch button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.sheet-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  height: 100%;
+  padding: 0.4rem;
+  text-align: left;
+  background: #fff;
+}
+
+.sheet-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.sheet-card-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sheet-card svg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  background: #eef1f4;
+  border-radius: 4px;
+}
+
+.sheet-card svg .part:hover {
+  stroke-width: 1px;
+  filter: none;
+}
+
+.overview-more {
+  margin-top: 0.6rem;
 }
