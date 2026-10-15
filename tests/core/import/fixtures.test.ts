@@ -13,6 +13,8 @@ interface Expectation {
   readonly opts?: DxfPartsOptions;
   /** Díly: [šířka, výška, počet otvorů] v pořadí pojmenování. */
   readonly parts: readonly (readonly [number, number, number])[];
+  /** Názvy dílů ve stejném pořadí (chybí-li, nekontrolují se). */
+  readonly names?: readonly string[];
   readonly units?: string;
   /** Části textu, které musí být ve varováních / chybách (prázdné = žádné). */
   readonly warnings?: readonly RegExp[];
@@ -38,7 +40,12 @@ const EXPECTED: Record<string, readonly Expectation[]> = {
         [60, 110, 2],
         [110, 60, 2],
       ],
-      warnings: [/TEXT \(4\)/],
+      // Názvy z popisků uvnitř dílů; natočené příruby nejsou stejný tvar.
+      names: ['Příruba', 'Bok', 'Příruba-2', 'Příruba-3'],
+      warnings: [
+        /TEXT \(4\)/,
+        /„Příruba" mají různý tvar nebo natočení.*Příruba, Příruba-2, Příruba-3/,
+      ],
     },
   ],
   'plan-cary-oblouky.dxf': [
@@ -52,7 +59,12 @@ const EXPECTED: Record<string, readonly Expectation[]> = {
         [60, 110, 2],
         [110, 60, 2],
       ],
-      warnings: [/TEXT \(4\)/],
+      // Názvy z popisků uvnitř dílů; natočené příruby nejsou stejný tvar.
+      names: ['Příruba', 'Bok', 'Příruba-2', 'Příruba-3'],
+      warnings: [
+        /TEXT \(4\)/,
+        /„Příruba" mají různý tvar nebo natočení.*Příruba, Příruba-2, Příruba-3/,
+      ],
     },
   ],
   // Uzavření mezery 0,05 mm přichytí roh: úbytek ≤ 0,05 · 120 / 2 = 3 mm².
@@ -86,7 +98,18 @@ const EXPECTED: Record<string, readonly Expectation[]> = {
     { parts: [[200, 100, 1]], area: 200 * 100 - 4 * (100 - 25 * Math.PI) - 400 * Math.PI },
   ],
   'texty-koty.dxf': [
-    { parts: [[150, 75, 0]], warnings: [/TEXT \(1\), MTEXT \(1\), DIMENSION \(1\), HATCH \(1\)/] },
+    {
+      parts: [[150, 75, 0]],
+      names: ['texty-koty'],
+      warnings: [/TEXT \(1\), MTEXT \(1\), DIMENSION \(1\), HATCH \(1\)/],
+    },
+    {
+      // Více dílů: název z textu s největším písmem (TEXT 5 mm, MTEXT 3 mm).
+      opts: { mode: 'multi' },
+      parts: [[150, 75, 0]],
+      names: ['Díl A'],
+      warnings: [/TEXT \(1\), MTEXT \(1\), DIMENSION \(1\), HATCH \(1\)/],
+    },
   ],
   'lwpolyline-zdvojeny-bod.dxf': [{ parts: [[80, 60, 0]] }],
   'nulovy-polomer.dxf': [{ parts: [[60, 60, 0]], warnings: [/nulovým/] }],
@@ -111,6 +134,7 @@ function check(name: string, e: Expectation) {
           near(g[0], e.parts[i]![0]) && near(g[1], e.parts[i]![1]) && g[2] === e.parts[i]![2],
       ),
   );
+  if (e.names) expect(r.parts.map((p) => p.name)).toEqual(e.names);
   if (e.units) expect(r.units.name).toBe(e.units);
   const w = e.warnings ?? [];
   expect(r.warnings).toHaveLength(w.length);

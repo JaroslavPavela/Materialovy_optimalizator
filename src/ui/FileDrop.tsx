@@ -72,7 +72,11 @@ export function FileDrop() {
           </label>
         ))}
       </fieldset>
-      <p className="muted hint">CSV nahradí seznam dílů, díly z DXF a DWG se přidají.</p>
+      <p className="muted hint">
+        CSV nahradí seznam dílů, díly z DXF a DWG se přidají. Při více dílech v souboru se díl
+        pojmenuje podle textu uvnitř obrysu (největší písmo); stejné díly se stejným textem se
+        sečtou.
+      </p>
       {reports.map((r, i) => (
         <div key={i} className="import-report" role="status">
           <p>

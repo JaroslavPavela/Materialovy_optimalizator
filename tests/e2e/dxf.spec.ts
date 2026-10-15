@@ -63,10 +63,19 @@ test('DXF → plán se skutečnými tvary → export DXF se stejnými díly', as
     (f) => partsFromDxf(f, new Uint8Array(readFileSync(fixture(f)))).parts[0]!,
   );
   const want = [...Array(3).fill(net(source[0]!)), ...Array(4).fill(net(source[1]!))].sort();
-  const got = exported.parts.map(net).sort();
+  // Díly se pojmenují podle popisků z exportu; stejně natočené kopie se
+  // sloučí (počet kusů), jinak natočené zůstanou zvlášť s příponou -2, -3…
+  const copies = exported.parts.flatMap((p) => Array<typeof p>(p.quantity).fill(p));
+  const got = copies.map(net).sort();
   expect(got).toHaveLength(7);
   got.forEach((a, i) => expect(Math.abs(a - want[i]!)).toBeLessThan(1));
-  expect(exported.parts.map((p) => p.shape!.holes.length).sort()).toEqual([1, 1, 1, 1, 6, 6, 6]);
+  expect(copies.map((p) => p.shape!.holes.length).sort()).toEqual([1, 1, 1, 1, 6, 6, 6]);
+  const perName = (base: string) =>
+    exported.parts
+      .filter((p) => new RegExp(`^${base}(-\\d+)?$`).test(p.name))
+      .reduce((s, p) => s + p.quantity, 0);
+  expect([perName('dil-s-otvory'), perName('spline')]).toEqual([3, 4]);
+  expect(exported.parts.length).toBeLessThan(7);
 
   expect(errors).toEqual([]);
 });

@@ -146,13 +146,19 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       Hotovo: testy – DWG vzorky všech verzí dají stejné díly jako zdrojové
       DXF, výkres z AutoCADu dá stejné díly jako DXF uložené AutoCADem;
       E2E nahraj DWG → plán.
+- [x] 8.2 Názvy dílů z textu: v režimu „více dílů v souboru" (DXF i DWG) se
+      díl pojmenuje textem (TEXT, MTEXT, i v blocích) uvnitř obrysu – při více
+      textech největší písmo; díly se stejným textem a tvarem se sloučí
+      a sečte se počet, jiný tvar se stejným textem zůstane zvlášť
+      s upozorněním. Režim „1 soubor = 1 díl" dál podle souboru.
+      Hotovo: jednotkové a property testy, očekávání názvů ve vzorcích.
 
 ---
 
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: feat: import dílů z DWG (krok 8.1)
+Poslední commit: feat: názvy dílů z textu ve výkresu (krok 8.2)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -513,3 +519,18 @@ BLOKOVÁNO: ne
   hook chránící vzorky je nedovolil opravit, uživatel je smazal a vytvořily
   se znovu opraveným generátorem. Kontrola: lint, typecheck, 500 testů,
   24 e2e a build bez chyb a varování.
+- 8.2: Na přání uživatele (upřesnil volby: největší písmo, sloučit stejné
+  díly, jen hromadný režim, počet kusů z textu nečíst). `readDxf` vrací
+  i texty (`texts`: text bez formátovacích kódů, odhad středu, výška v mm);
+  střed textu se odhaduje ze zarovnání a počtu znaků (0,6 × výška na znak).
+  Text patří nejhlouběji vnořenému dílu, v jehož obrysu leží; text
+  v materiálu má přednost před textem v otvoru. Stejný tvar = obrysy
+  i otvory do 0,05 mm (vrcholy i body na hranách, mřížkový index hran),
+  natočená kopie stejný tvar není – zůstane zvlášť (`A12-2`) s upozorněním.
+  Vlastní obsluha TEXT/MTEXT v dxf-parseru (směr extruze, kódy 41, 71).
+  Atributy bloků (ATTRIB) se pro název nepoužívají. Revize subagentem
+  revize-geometrie našla 9 problémů (výkon u perforovaných plechů, text
+  v otvoru, falešná shoda se zářezem, kolize názvů, MTEXT s −Z, kódy MTEXT,
+  zrcadlený text) – opraveny, každý má regresní test. E2E exportu DXF
+  počítá se sloučením dílů při zpětném importu (popisky v exportu jsou
+  názvy dílů). Kontrola: lint, typecheck, 522 testů, 24 e2e, build.

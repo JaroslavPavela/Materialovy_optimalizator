@@ -2,13 +2,15 @@ import { contourArea, contourBBox } from '../geometry/contour.ts';
 import { EPS } from '../geometry/eps.ts';
 import { translateContour } from '../geometry/transform.ts';
 import type { Contour } from '../geometry/types.ts';
-import type { Part, RotationMode } from '../model.ts';
+import type { Part, PartShape, RotationMode } from '../model.ts';
 import { buildContours, type ContourOptions, type ShapeRegion } from './contours.ts';
 import { readDxf, type DxfReadOptions, type DxfUnits } from './dxf.ts';
+import { prepareShape, regionLabels, samePreparedShape, type PreparedShape } from './part-names.ts';
 
 /**
  * Režim importu: `single` = soubor je jeden díl (největší vnější obrys, uvnitř
- * otvory), `multi` = každý vnější obrys je samostatný díl.
+ * otvory), `multi` = každý vnější obrys je samostatný díl pojmenovaný podle
+ * textu uvnitř (největší písmo); stejné díly se stejným textem se sečtou.
  */
 export type DxfPartMode = 'single' | 'multi';
 
@@ -37,7 +39,7 @@ export function baseName(fileName: string): string {
 }
 
 /** Tvar posunutý tak, aby levý dolní roh obalového obdélníku byl v (0, 0). */
-function normalizeRegion(region: ShapeRegion) {
+function normalizeRegion(region: ShapeRegion, label: string | null) {
   const bb = contourBBox(region.outer);
   const move = (c: Contour) => translateContour(c, -bb.x, -bb.y);
   return {
@@ -47,6 +49,7 @@ function normalizeRegion(region: ShapeRegion) {
     // Pro pojmenování shora dolů a zleva doprava podle polohy ve výkresu.
     top: bb.y + bb.height,
     left: bb.x,
+    label,
   };
 }
 
@@ -91,17 +94,82 @@ export function partsFromDxf(
 
   const base = baseName(fileName);
   const prefix = opts.idPrefix ?? 'dxf';
+  const labels = mode === 'multi' ? regionLabels(regions, read.texts) : regions.map(() => null);
   const normalized = regions
-    .map(normalizeRegion)
+    .map((r, i) => normalizeRegion(r, labels[i]!))
     .sort((a, b) => (Math.abs(b.top - a.top) > EPS ? b.top - a.top : a.left - b.left));
-  const parts = normalized.map((n, i): Part => ({
+
+  // Díly se stejným textem a tvarem se sloučí (počet = počet kopií).
+  interface Group {
+    readonly label: string | null;
+    /** Pořadí dílu bez textu / pořadí tvaru se stejným textem (od 1). */
+    readonly index: number;
+    readonly shape: PartShape;
+    readonly prepared: PreparedShape | null;
+    readonly width: number;
+    readonly height: number;
+    count: number;
+    name: string;
+  }
+  const groups: Group[] = [];
+  const byLabel = new Map<string, Group[]>();
+  normalized.forEach((n, i) => {
+    const part = { shape: n.shape, width: n.width, height: n.height, count: 1, name: '' };
+    if (n.label === null) {
+      groups.push({ ...part, label: null, index: i + 1, prepared: null });
+      return;
+    }
+    const prepared = prepareShape(n.shape);
+    const same = byLabel.get(n.label) ?? [];
+    const match = same.find((g) => samePreparedShape(g.prepared!, prepared));
+    if (match) {
+      match.count++;
+      return;
+    }
+    const group = { ...part, label: n.label, index: same.length + 1, prepared };
+    same.push(group);
+    byLabel.set(n.label, same);
+    groups.push(group);
+  });
+
+  // Názvy: text z výkresu beze změny; jiný tvar se stejným textem `text-2`,
+  // díl bez textu `soubor-pořadí` (jediný díl jen `soubor`). Vygenerovaný
+  // název, který už existuje (např. text „A-2"), dostane další volné číslo.
+  const used = new Set<string>();
+  for (const g of groups) {
+    if (g.label !== null && g.index === 1) {
+      g.name = g.label;
+      used.add(g.name);
+    }
+  }
+  for (const g of groups) {
+    if (g.name) continue;
+    const stem = g.label ?? base;
+    if (g.label === null && normalized.length === 1 && !used.has(base)) {
+      g.name = base;
+    } else {
+      let k = g.index;
+      while (used.has(`${stem}-${k}`)) k++;
+      g.name = `${stem}-${k}`;
+    }
+    used.add(g.name);
+  }
+  for (const [label, same] of byLabel) {
+    if (same.length > 1) {
+      warnings.push(
+        `Díly s textem „${label}" mají různý tvar nebo natočení – ponechány zvlášť: ${same.map((g) => g.name).join(', ')}.`,
+      );
+    }
+  }
+
+  const parts = groups.map((g, i): Part => ({
     id: `${prefix}-${i + 1}`,
-    name: normalized.length === 1 ? base : `${base}-${i + 1}`,
-    width: n.width,
-    height: n.height,
-    quantity: 1,
+    name: g.name,
+    width: g.width,
+    height: g.height,
+    quantity: g.count,
     rotation: opts.rotation ?? 'ortho',
-    shape: n.shape,
+    shape: g.shape,
   }));
   return { parts, units: read.units, warnings, errors };
 }

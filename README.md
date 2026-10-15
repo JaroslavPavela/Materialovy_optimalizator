@@ -112,8 +112,13 @@ Uzavřené obrysy se sestaví z čar a oblouků: koncové body do 0,01 mm se
 spojí, mezery do 0,1 mm se uzavřou s varováním, duplicitní čáry se
 odstraní. Kontura uvnitř jiné je otvor, kontura v otvoru je samostatný díl.
 Neviditelné entity a vypnuté či zamrzlé vrstvy se přeskočí. Režim
-_1 soubor = 1 díl_ vezme největší obrys, režim _více dílů v souboru_ udělá
-díl z každého vnějšího obrysu.
+_1 soubor = 1 díl_ vezme největší obrys a díl pojmenuje podle souboru. Režim
+_více dílů v souboru_ udělá díl z každého vnějšího obrysu a pojmenuje ho
+textem (TEXT, MTEXT, i v blocích), který leží uvnitř obrysu – při více
+textech tím s největším písmem. Díly se stejným textem a stejným tvarem se
+sloučí do jednoho řádku s počtem kusů; liší-li se tvar nebo natočení,
+zůstanou zvlášť (`A12`, `A12-2`) s upozorněním. Díl bez textu dostane název
+souboru s pořadím (`plech-1`, `plech-2`).
 
 Neuzavřené kontury, větvení (čára přes obrys, ohyb ve stejné vrstvě),
 samoprůniky a překrývající se obrysy se hlásí srozumitelnou chybou s místem

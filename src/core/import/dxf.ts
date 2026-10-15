@@ -34,10 +34,23 @@ export interface DxfUnits {
   readonly toMm: number;
 }
 
+/** Text výkresu (TEXT, MTEXT) – pro pojmenování dílů. */
+export interface DxfText {
+  /** Text bez formátovacích kódů. */
+  readonly text: string;
+  /** Přibližný střed textu v mm (WCS). */
+  readonly at: Point;
+  /** Výška písma v mm. */
+  readonly height: number;
+  readonly layer: string;
+}
+
 export interface DxfReadResult {
   /** `false` = soubor nejde přečíst (viz `errors`), segmenty jsou prázdné. */
   readonly ok: boolean;
   readonly segments: readonly DxfSegment[];
+  /** Viditelné texty modelového prostoru včetně textů v blocích. */
+  readonly texts: readonly DxfText[];
   readonly units: DxfUnits;
   readonly warnings: readonly string[];
   readonly errors: readonly string[];
@@ -256,6 +269,8 @@ function createParser(): DxfParser {
     EllipseHandler,
     SplineHandler,
     PolylineHandler,
+    TextHandler,
+    MTextHandler,
     ...ignoredHandlers,
   ]) {
     parser.registerEntityHandler(h as unknown as HandlerClass);
@@ -283,6 +298,38 @@ const isPoint = (p: unknown): p is Point =>
 
 const finite = (v: unknown, fallback: number) =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+
+/**
+ * TEXT: první bod (10), druhý bod zarovnání (11), výška (40), text (1),
+ * otočení (50), šířkový faktor (41), zrcadlení (71: 2 = pozpátku, 4 = vzhůru
+ * nohama), vodorovné (72) a svislé (73) zarovnání. Vlastní obsluha –
+ * dxf-parser u TEXT nečte směr extruze.
+ */
+const TextHandler = groupHandler('TEXT', (g) => ({
+  startPoint: pointsOf(g, 10)[0],
+  endPoint: pointsOf(g, 11)[0],
+  textHeight: valuesOf(g, 40)[0],
+  text: g.find((x) => x.code === 1)?.value,
+  rotation: valuesOf(g, 50)[0] ?? 0,
+  widthFactor: valuesOf(g, 41)[0] ?? 1,
+  generation: valuesOf(g, 71)[0] ?? 0,
+  halign: valuesOf(g, 72)[0] ?? 0,
+  valign: valuesOf(g, 73)[0] ?? 0,
+}));
+
+/** MTEXT: text je v kódech 3 (začátek po 250 znacích) a 1 (konec). */
+const MTextHandler = groupHandler('MTEXT', (g) => ({
+  position: pointsOf(g, 10)[0],
+  direction: pointsOf(g, 11)[0],
+  height: valuesOf(g, 40)[0],
+  text: g
+    .filter((x) => x.code === 3 || x.code === 1)
+    .sort((a, b) => b.code - a.code)
+    .map((x) => String(x.value))
+    .join(''),
+  rotation: valuesOf(g, 50)[0] ?? 0,
+  attachmentPoint: valuesOf(g, 71)[0] ?? 1,
+}));
 
 /** Bod ve tvaru {x, y, z} z parseru (210/220/230 u některých entit). */
 function extrusionOf(e: Entity): { x: number; y: number; z: number } {
@@ -313,6 +360,7 @@ const bulgeOf = (sweep: number) => Math.tan(sweep / 4);
 
 class Collector {
   readonly segments: DxfSegment[] = [];
+  readonly texts: DxfText[] = [];
   readonly warnings: string[] = [];
   readonly ignored = new Map<string, number>();
   readonly unsupported = new Map<string, number>();
@@ -371,6 +419,152 @@ class Collector {
       this.segment(points[i]!, points[i + 1]!, 0, m, layer);
     if (closed && points.length > 2) this.segment(points.at(-1)!, points[0]!, 0, m, layer);
   }
+}
+
+/** Nejvíc textů z jednoho výkresu. */
+const MAX_TEXTS = 100_000;
+/** Průměrná šířka znaku jako podíl výšky písma – jen pro odhad středu textu. */
+const CHAR_WIDTH = 0.6;
+/** Rozteč řádků MTEXT jako násobek výšky písma. */
+const LINE_SPACING = 5 / 3;
+
+const SPECIAL: Readonly<Record<string, string>> = { c: 'Ø', d: '°', p: '±', '%': '%' };
+
+/**
+ * Formátovací kódy MTEXT v jednom průchodu zleva: \\ \{ \} (znaky), \P \X \~
+ * (mezera), \Sa^b; (zlomek, horní či dolní index), \L \l \O \o \K \k \N
+ * (přepínače), \H2.5; \fArial; apod. (kód s parametrem do středníku)
+ * a závorky skupin { }.
+ */
+const MTEXT_CODE =
+  /\\([\\{}])|\\[PX~]|\\S([^;]*?)[\^#/]([^;]*);|\\[LlOoKkNn]|\\[ACcFfHQTWp][^;]*;|[{}]/g;
+
+/**
+ * Text bez formátování: kódy MTEXT, speciální znaky %%c, %%d, %%p, %%nnn,
+ * podtržení %%u, %%o, řídicí znaky ^J ^I ^M a \U+XXXX (DXF R12).
+ */
+export function plainDxfText(raw: string, mtext: boolean): string {
+  let t = raw.replace(/\\U\+([0-9A-Fa-f]{4})/g, (_, h: string) =>
+    String.fromCharCode(parseInt(h, 16)),
+  );
+  if (mtext) {
+    t = t.replace(MTEXT_CODE, (m, escaped?: string, num?: string, den?: string) => {
+      if (escaped !== undefined) return escaped;
+      if (num !== undefined) {
+        // \S2^; je horní index, \S^2; dolní – bez zlomkové čáry.
+        if (!num || !den) return num || den || '';
+        return ` ${num}/${den}`;
+      }
+      return /^\\[PX~]$/.test(m) ? ' ' : '';
+    });
+  }
+  t = t.replace(/\^[JIM]/g, ' ');
+  t = t.replace(/%%([cdp%])/gi, (_, c: string) => SPECIAL[c.toLowerCase()]!);
+  t = t.replace(/%%(\d{3})/g, (_, n: string) => String.fromCharCode(Number(n)));
+  t = t.replace(/%%[uok]/gi, '');
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+/** Řádky MTEXT (\P), escapované \\P konec řádku není. */
+function mtextLines(raw: string): string[] {
+  const lines: string[] = [];
+  let last = 0;
+  for (const m of raw.matchAll(/\\\\|\\P/g)) {
+    if (m[0] !== '\\P') continue;
+    lines.push(raw.slice(last, m.index));
+    last = m.index + 2;
+  }
+  lines.push(raw.slice(last));
+  return lines;
+}
+
+/** Bod `local` posunutý o (dx, dy) v souřadnicích otočených o `deg`. */
+function offsetRotated(p: Point, dx: number, dy: number, deg: number): Point {
+  const r = (deg * Math.PI) / 180;
+  return {
+    x: p.x + dx * Math.cos(r) - dy * Math.sin(r),
+    y: p.y + dx * Math.sin(r) + dy * Math.cos(r),
+  };
+}
+
+/** Přibližný střed TEXT v OCS podle zarovnání (šířka z počtu znaků). */
+function textCenter(e: Entity, text: string, h: number): Point | null {
+  const p10 = isPoint(e.startPoint) ? e.startPoint : null;
+  const p11 = isPoint(e.endPoint) ? e.endPoint : null;
+  const ha = finite(e.halign, 0);
+  const va = finite(e.valign, 0);
+  const rot = finite(e.rotation, 0);
+  const gen = finite(e.generation, 0);
+  if ((ha === 3 || ha === 5) && p10 && p11) {
+    // Zarovnaný / přizpůsobený text: mezi body 10 a 11, výška nad účaří.
+    const deg = (Math.atan2(p11.y - p10.y, p11.x - p10.x) * 180) / Math.PI;
+    const up = (gen & 4) !== 0 ? -h / 2 : h / 2;
+    return offsetRotated({ x: (p10.x + p11.x) / 2, y: (p10.y + p11.y) / 2 }, 0, up, deg);
+  }
+  if (ha === 4 && p11) return p11;
+  const anchor = ha === 0 && va === 0 ? p10 : (p11 ?? p10);
+  if (!anchor) return null;
+  const factor = finite(e.widthFactor, 1);
+  const w = text.length * CHAR_WIDTH * h * (factor > 0 ? factor : 1);
+  let dx = ha === 1 ? 0 : ha === 2 ? -w / 2 : w / 2;
+  let dy = va === 2 ? 0 : va === 3 ? -h / 2 : h / 2;
+  // Text pozpátku běží od bodu vložení doleva, vzhůru nohama dolů.
+  if ((gen & 2) !== 0) dx = -dx;
+  if ((gen & 4) !== 0) dy = -dy;
+  return offsetRotated(anchor, dx, dy, rot);
+}
+
+/**
+ * Přibližný střed MTEXT ve WCS podle bodu připojení 1–9 a počtu řádků.
+ * Osa X textu = směr (11, WCS) nebo úhel 50 v OCS; osa Y = normála × X,
+ * u normály −Z tedy míří opačně než u +Z.
+ */
+function mtextCenter(e: Entity, raw: string, h: number, ocs: Affine): Point | null {
+  if (!isPoint(e.position)) return null;
+  const lines = mtextLines(raw).map((l) => plainDxfText(l, true));
+  const w = Math.max(...lines.map((l) => l.length)) * CHAR_WIDTH * h;
+  const H = h + (lines.length - 1) * h * LINE_SPACING;
+  const a = Math.min(9, Math.max(1, Math.round(finite(e.attachmentPoint, 1))));
+  const col = (a - 1) % 3;
+  const row = Math.floor((a - 1) / 3);
+  const r = (finite(e.rotation, 0) * Math.PI) / 180;
+  let X = isPoint(e.direction) ? e.direction : applyAffine(ocs, { x: Math.cos(r), y: Math.sin(r) });
+  const len = Math.hypot(X.x, X.y);
+  if (!(len > 0)) return null;
+  X = { x: X.x / len, y: X.y / len };
+  const s = extrusionOf(e).z < 0 ? -1 : 1;
+  const Y = { x: -s * X.y, y: s * X.x };
+  const dx = col === 0 ? w / 2 : col === 2 ? -w / 2 : 0;
+  const dy = row === 0 ? -H / 2 : row === 2 ? H / 2 : 0;
+  return {
+    x: e.position.x + dx * X.x + dy * Y.x,
+    y: e.position.y + dx * X.y + dy * Y.y,
+  };
+}
+
+/** TEXT nebo MTEXT → střed a výška v mm (WCS). */
+function addText(e: Entity, m: Affine, out: Collector, layer: string) {
+  if (out.texts.length >= MAX_TEXTS) {
+    out.warnOnce(
+      `Výkres má víc než ${MAX_TEXTS.toLocaleString('cs-CZ')} textů – další se pro názvy dílů nepoužijí.`,
+    );
+    return;
+  }
+  const mtext = e.type === 'MTEXT';
+  const raw = typeof e.text === 'string' ? e.text : String(e.text ?? '');
+  const text = plainDxfText(raw, mtext);
+  const h = finite(mtext ? e.height : e.textHeight, 0);
+  if (!text || !(h > 0)) return;
+  // TEXT je v OCS; MTEXT ve WCS, ale i u něj musí normála mířit v ose Z.
+  const ocs = ocsMatrix(e);
+  if (!ocs) return;
+  const local = mtext ? mtextCenter(e, raw, h, ocs) : textCenter(e, text, h);
+  if (!local) return;
+  const mo = mtext ? m : compose(m, ocs);
+  const at = applyAffine(mo, local);
+  const height = h * Math.sqrt(Math.abs(affineDeterminant(mo)));
+  if (!Number.isFinite(at.x) || !Number.isFinite(at.y) || !(height > 0)) return;
+  out.texts.push({ text, at, height, layer });
 }
 
 /** Vzdálenost bodu od úsečky. */
@@ -610,12 +804,14 @@ function walk(
     if (out.overflow) return;
     if (raw.inPaperSpace === true) continue;
     const type = String(raw.type);
-    if (IGNORED.has(type)) {
-      out.count(out.ignored, type);
-      continue;
-    }
     const own = String(raw.layer ?? '0');
     const layer = own === '0' && inherited !== null ? inherited : own;
+    if (IGNORED.has(type)) {
+      out.count(out.ignored, type);
+      const shown = raw.visible !== false && !ctx.hiddenLayers.has(layer);
+      if ((type === 'TEXT' || type === 'MTEXT') && shown) addText(raw, m, out, layer);
+      continue;
+    }
     if (raw.visible === false || ctx.hiddenLayers.has(layer)) {
       out.hidden++;
       continue;
@@ -825,9 +1021,9 @@ export function readDxf(
   if (out.unsupported.size > 0)
     warnings.push(`Nepodporované entity přeskočeny: ${formatList(out.unsupported)}.`);
   const errors = out.segments.length === 0 ? ['Výkres neobsahuje žádnou geometrii dílu.'] : [];
-  return { ok: true, segments: out.segments, units, warnings, errors };
+  return { ok: true, segments: out.segments, texts: out.texts, units, warnings, errors };
 }
 
 function fail(units: DxfUnits, message: string): DxfReadResult {
-  return { ok: false, segments: [], units, warnings: [], errors: [message] };
+  return { ok: false, segments: [], texts: [], units, warnings: [], errors: [message] };
 }
