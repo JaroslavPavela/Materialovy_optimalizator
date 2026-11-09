@@ -1,3 +1,4 @@
+import { isDxfVersion } from '../core/export/dxf-writer.ts';
 import { layerRolesFromJson } from '../core/import/layers.ts';
 import type { Sheet } from '../core/model.ts';
 import { projectFromJson, sheetFromJson, toProjectFile } from '../core/project.ts';
@@ -24,11 +25,12 @@ export async function initPersistence(
   now: () => Date = () => new Date(),
 ): Promise<Persistence> {
   const store = useAppStore;
-  const [lastProject, library, roles, notesFromAll] = await Promise.all([
+  const [lastProject, library, roles, notesFromAll, dxfVersion] = await Promise.all([
     storage.loadLastProject(),
     storage.loadSheetLibrary(),
     storage.loadLayerRoles(),
     storage.loadNotesFromAllLayers(),
+    storage.loadDxfVersion(),
   ]);
   if (lastProject !== null && lastProject !== undefined) {
     const r = projectFromJson(lastProject);
@@ -39,6 +41,7 @@ export async function initPersistence(
   store.getState().setSheetLibrary(sheets);
   store.getState().setLayerRoles(layerRolesFromJson(roles));
   await store.getState().setNotesFromAllLayers(notesFromAll === true, false);
+  if (isDxfVersion(dxfVersion)) store.getState().setDxfVersion(dxfVersion);
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let projectDirty = false;
@@ -83,6 +86,12 @@ export async function initPersistence(
       writing = writing
         .then(() => storage.saveNotesFromAllLayers(value))
         .catch((e: unknown) => console.warn('Uložení volby textů selhalo:', e));
+    }
+    if (s.dxfVersion !== prev.dxfVersion) {
+      const version = s.dxfVersion;
+      writing = writing
+        .then(() => storage.saveDxfVersion(version))
+        .catch((e: unknown) => console.warn('Uložení verze DXF selhalo:', e));
     }
     if ((projectDirty || libraryDirty) && timer === null) {
       timer = setTimeout(write, AUTOSAVE_DELAY_MS);

@@ -10,7 +10,7 @@ import {
   useAppStore,
 } from '../../src/state/store.ts';
 import { circle, dxf, ent, line, rectPoly } from '../core/import/dxf-builder.ts';
-import type { NestingClient } from '../../src/worker/client.ts';
+import { NestingAbortedError, type NestingClient } from '../../src/worker/client.ts';
 import { createNestingService } from '../../src/worker/service.ts';
 
 /** Klient bez workeru – počítá synchronně v testu. */
@@ -23,6 +23,7 @@ const syncClient: NestingClient = {
   },
   stop: () => Promise.resolve(),
   importDrawing: (name, data, opts) => createNestingService().importDrawing(name, data, opts),
+  writeDxf: (request) => createNestingService().writeDxf(request),
   abort: () => {},
   dispose: () => {},
 };
@@ -401,6 +402,29 @@ describe('store', () => {
     // Bez nového načtení (z úložiště při startu).
     await state().setNotesFromAllLayers(false, false);
     expect(state().parts[0]!.shape!.notes).toHaveLength(1);
+  });
+
+  it('export DXF ve zvolené verzi: výchozí 2018 (worker), 2000 a R12; jedna skupina i všechny', async () => {
+    addPart();
+    addPart();
+    await state().calculate();
+    const groups = [{ indices: [0] }];
+    expect(state().dxfVersion).toBe('2018');
+    const header = (t: string) => /\$ACADVER\s*\r?\n\s*1\s*\r?\n(\w+)/.exec(t)?.[1];
+    const [f2018] = await state().exportDxf('plan', groups, 0);
+    expect(f2018!.name).toBe('plan-tabule-01.dxf');
+    expect(header(f2018!.content)).toBe('AC1032');
+    state().setDxfVersion('2000');
+    expect(header((await state().exportDxf('plan', groups))[0]!.content)).toBe('AC1015');
+    state().setDxfVersion('R12');
+    expect(header((await state().exportDxf('plan', groups))[0]!.content)).toBe('AC1009');
+    // Zrušený export (ukončený worker) se tiše zahodí.
+    state().setDxfVersion('2018');
+    setNestingClient({ ...syncClient, writeDxf: () => Promise.reject(new NestingAbortedError()) });
+    expect(await state().exportDxf('plan', groups)).toEqual([]);
+    setNestingClient(syncClient);
+    resetAppStore();
+    expect(await state().exportDxf('plan', groups)).toEqual([]);
   });
 
   it('import DXF: díly se přidají, režim více dílů, dávka CSV + DXF, hlášení po souborech', async () => {

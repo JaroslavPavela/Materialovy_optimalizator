@@ -27,6 +27,14 @@ export const DXF_LAYERS = {
 
 export type DxfLayer = keyof typeof DXF_LAYERS;
 
+/** Verze exportu DXF: R12 (AC1009, vlastní zápis), 2000 (AC1015), 2018 (AC1032). */
+export type DxfVersion = 'R12' | '2000' | '2018';
+
+export const DXF_VERSIONS: readonly DxfVersion[] = ['2018', '2000', 'R12'];
+
+export const isDxfVersion = (v: unknown): v is DxfVersion =>
+  typeof v === 'string' && (DXF_VERSIONS as readonly string[]).includes(v);
+
 /** Barvy vrstev převzatých z výkresu podle role: obrys, otvor, přidaná geometrie. */
 const DRAWING_LAYER_COLORS = { outer: 7, hole: 1, mark: 2 } as const;
 
@@ -61,12 +69,28 @@ const GENERIC_LAYERS = new Set(['0', 'DILY', 'OTVORY']);
  * převádí podle role: vnější obrys na DILY, otvor na OTVORY, přidaná
  * geometrie na 0 – CAM tak dostane obrysy a otvory oddělené jako u CSV.
  */
-class LayerNames {
+export class LayerNames {
   private readonly byName = new Map<string, string>();
+  /** Obsazené názvy velkými písmeny – názvy vrstev nerozlišují velikost písmen. */
   private readonly taken = new Set<string>(['0', ...Object.keys(DXF_LAYERS)]);
   readonly colors = new Map<string, number>();
 
-  constructor(parts: readonly Part[]) {
+  /**
+   * @param convert převod názvu hladiny na platný název vrstvy cílové verze
+   *   (`dxfLayerName` pro R12, `modernLayerName` pro 2000 a novější)
+   * @param maxLength nejdelší název vrstvy (kvůli příponě _2, _3…)
+   */
+  private readonly convert: (name: string) => string;
+  private readonly maxLength: number;
+
+  constructor(
+    parts: readonly Part[],
+    convert: (name: string) => string = dxfLayerName,
+    maxLength = MAX_LAYER_NAME,
+  ) {
+    // Bez parametrových vlastností – jádro spouští i Node s odstraněním typů.
+    this.convert = convert;
+    this.maxLength = maxLength;
     for (const p of parts) {
       const shape = p.shape;
       if (!shape?.layers) continue;
@@ -84,20 +108,142 @@ class LayerNames {
 
   private add(name: string, kind: LayerKind) {
     if (LayerNames.generic(name, kind) !== null || this.byName.has(name)) return;
-    const base = dxfLayerName(name);
+    const base = this.convert(name);
     let out = base;
-    for (let k = 2; this.taken.has(out); k++) {
+    for (let k = 2; this.taken.has(out.toUpperCase()); k++) {
       const suffix = `_${k}`;
-      out = base.slice(0, MAX_LAYER_NAME - suffix.length) + suffix;
+      out = [...base].slice(0, this.maxLength - suffix.length).join('') + suffix;
     }
-    this.taken.add(out);
+    this.taken.add(out.toUpperCase());
     this.byName.set(name, out);
     this.colors.set(out, DRAWING_LAYER_COLORS[kind]);
   }
 
   get(name: string, kind: LayerKind): string {
-    return LayerNames.generic(name, kind) ?? this.byName.get(name) ?? dxfLayerName(name);
+    return LayerNames.generic(name, kind) ?? this.byName.get(name) ?? this.convert(name);
   }
+}
+
+/** Nejdelší název vrstvy v DXF 2000 a novějším. */
+export const MAX_MODERN_LAYER_NAME = 255;
+
+/**
+ * Název hladiny jako vrstva DXF 2000+: původní název včetně diakritiky
+ * a mezer; jen znaky, které AutoCAD v názvech nepovoluje (< > / \ " : ; ? * | = ` ,)
+ * a řídicí znaky jako „_", bez mezer na okrajích, nejvýš 255 znaků. Prázdný = „0".
+ */
+export function modernLayerName(name: string): string {
+  // Řídicí znaky v názvu vrstvy nejsou povolené.
+  // eslint-disable-next-line no-control-regex
+  const out = [...name.replace(/[<>/\\":;?*|=`,\u0000-\u001f\u007f]/g, '_').trim()]
+    .slice(0, MAX_MODERN_LAYER_NAME)
+    .join('')
+    .trim();
+  return out || '0';
+}
+
+/** Prvek výkresu tabule – stejný pro všechny verze DXF. */
+export type SheetItem =
+  | { readonly kind: 'contour'; readonly layer: string; readonly contour: Contour }
+  | { readonly kind: 'segment'; readonly layer: string; readonly segment: ShapeSegment }
+  | { readonly kind: 'text'; readonly layer: string; readonly note: Omit<PartNote, 'layer'> };
+
+/** Výkres jedné tabule: vrstvy s barvami (bez vrstvy 0), prvky v pořadí zápisu, meze. */
+export interface SheetDrawing {
+  readonly layers: readonly (readonly [string, number])[];
+  readonly items: readonly SheetItem[];
+  readonly extents: Rect;
+}
+
+/**
+ * Co se na tabuli kreslí: obrys tabule a zóny (TABULE), zbytek (ZBYTEK),
+ * obrysy, otvory, přidaná geometrie a poznámky dílů (vrstvy podle `names`,
+ * díly bez hladin DILY a OTVORY), popisky (POPISKY). Neznámé ID dílu
+ * v rozložení vyhodí `RangeError`.
+ */
+export function sheetDrawing(
+  sheet: Sheet,
+  layout: SheetLayout,
+  parts: readonly Part[],
+  opts: DxfOptions,
+  names: LayerNames,
+): SheetDrawing {
+  const byId = new Map(parts.map((p) => [p.id, p]));
+  const placed = layout.placements.map((placement) => {
+    const part = byId.get(placement.partId);
+    if (!part) throw new RangeError(`Umístění odkazuje na neznámý díl „${placement.partId}".`);
+    return { contours: placedContours(part, placement), label: placePart(part, placement) };
+  });
+
+  const extents = pointsBBox([
+    { x: 0, y: 0 },
+    { x: sheet.width, y: sheet.height },
+    ...sheet.forbiddenZones.flatMap((z) => z.polygon),
+    ...placed.flatMap((p) => [
+      { x: p.label.bbox.x, y: p.label.bbox.y },
+      { x: p.label.bbox.x + p.label.bbox.width, y: p.label.bbox.y + p.label.bbox.height },
+    ]),
+  ]);
+
+  const items: SheetItem[] = [];
+  const contour = (layer: string, c: Contour) => items.push({ kind: 'contour', layer, contour: c });
+  contour('TABULE', rectContour({ x: 0, y: 0, width: sheet.width, height: sheet.height }));
+  for (const z of sheet.forbiddenZones) {
+    contour(
+      'TABULE',
+      z.polygon.map((p) => ({ x: p.x, y: p.y, bulge: 0 })),
+    );
+  }
+  if (opts.remnant) contour('ZBYTEK', rectContour(opts.remnant));
+  const used = new Set<string>();
+  for (const { contours: c } of placed) {
+    const outer = c.layers ? names.get(c.layers.outer, 'outer') : 'DILY';
+    contour(outer, c.outer);
+    used.add(outer);
+    c.holes.forEach((h, k) => {
+      const layer = c.layers?.holes[k];
+      const name = layer === undefined ? 'OTVORY' : names.get(layer, 'hole');
+      contour(name, h);
+      used.add(name);
+    });
+    for (const m of c.marks ?? []) {
+      const layer = names.get(m.layer, 'mark');
+      used.add(layer);
+      for (const segment of m.segments) items.push({ kind: 'segment', layer, segment });
+    }
+    for (const { layer: from, ...note } of c.notes ?? []) {
+      if (!note.text || !(note.height > 0)) continue;
+      const layer = names.get(from, 'mark');
+      used.add(layer);
+      items.push({ kind: 'text', layer, note });
+    }
+  }
+  if (opts.labels !== false) {
+    for (const { label } of placed) {
+      // Výška velkých písmen ≈ 0,7 × velikost písma (stejná velikost jako SVG a náhled).
+      const height = 0.7 * labelSize(label);
+      if (!(height > 0)) continue;
+      items.push({
+        kind: 'text',
+        layer: 'POPISKY',
+        note: {
+          text: label.part.name,
+          at: label.labelAt,
+          height,
+          rotation: 0,
+          widthFactor: 1,
+          halign: 1,
+          valign: 2,
+          backwards: false,
+        },
+      });
+    }
+  }
+  const layers: (readonly [string, number])[] = [
+    ...(Object.entries(DXF_LAYERS) as [DxfLayer, number][]),
+    ...[...names.colors].filter(([n]) => used.has(n)),
+  ];
+  return { layers, items, extents };
 }
 
 export interface DxfOptions {
@@ -195,7 +341,7 @@ class DxfBuilder {
 }
 
 /** Plný kruh zapsaný jako 2 vrcholy s bulge ±1 → střed a poloměr. */
-function asCircle(contour: Contour): { center: Point; radius: number } | null {
+export function asCircle(contour: Contour): { center: Point; radius: number } | null {
   if (contour.length !== 2) return null;
   const [a, b] = contour as [Contour[0], Contour[0]];
   if (Math.abs(Math.abs(a.bulge) - 1) > 1e-9 || Math.abs(a.bulge - b.bulge) > 1e-9) return null;
@@ -228,7 +374,7 @@ function writeSegment(dxf: DxfBuilder, s: ShapeSegment, layer: string) {
  * Textová poznámka jako TEXT: výška, natočení, šířkový faktor (41), pozpátku
  * (71 = 2) a zarovnání 72/73 s bodem 11 (u zarovnání vlevo na účaří jen bod 10).
  */
-function writeNote(dxf: DxfBuilder, n: PartNote, layer: string) {
+function writeNote(dxf: DxfBuilder, n: Omit<PartNote, 'layer'>, layer: string) {
   if (!n.text || !(n.height > 0)) return;
   dxf.entity('TEXT', layer).point(n.at).pair(40, n.height).pair(1, dxfText(n.text));
   if (Math.abs(n.rotation) > ANGLE_EPS) dxf.pair(50, normDeg(n.rotation), ANGLE_DIGITS);
@@ -283,23 +429,11 @@ export function writeSheetDxf(
   parts: readonly Part[],
   opts: DxfOptions = {},
 ): string {
-  const byId = new Map(parts.map((p) => [p.id, p]));
-  const placed = layout.placements.map((placement) => {
-    const part = byId.get(placement.partId);
-    if (!part) throw new RangeError(`Umístění odkazuje na neznámý díl „${placement.partId}".`);
-    return { contours: placedContours(part, placement), label: placePart(part, placement) };
-  });
-
-  const sheetRect = { x: 0, y: 0, width: sheet.width, height: sheet.height };
-  const ext = pointsBBox([
-    { x: 0, y: 0 },
-    { x: sheet.width, y: sheet.height },
-    ...sheet.forbiddenZones.flatMap((z) => z.polygon),
-    ...placed.flatMap((p) => [
-      { x: p.label.bbox.x, y: p.label.bbox.y },
-      { x: p.label.bbox.x + p.label.bbox.width, y: p.label.bbox.y + p.label.bbox.height },
-    ]),
-  ]);
+  const {
+    layers,
+    items,
+    extents: ext,
+  } = sheetDrawing(sheet, layout, parts, opts, new LayerNames(parts));
 
   const dxf = new DxfBuilder();
   dxf
@@ -315,22 +449,6 @@ export function writeSheetDxf(
     .point({ x: ext.x + ext.width, y: ext.y + ext.height })
     .pair(0, 'ENDSEC');
 
-  // Vrstvy z hladin výkresu; v tabulce jen ty, které tabule používá.
-  const names = new LayerNames(parts);
-  const partLayers = placed.map(({ contours: c }) => ({
-    outer: c.layers ? names.get(c.layers.outer, 'outer') : 'DILY',
-    holes: c.holes.map((_, k) => {
-      const layer = c.layers?.holes[k];
-      return layer === undefined ? 'OTVORY' : names.get(layer, 'hole');
-    }),
-    marks: (c.marks ?? []).map((m) => names.get(m.layer, 'mark')),
-    notes: (c.notes ?? []).map((n) => names.get(n.layer, 'mark')),
-  }));
-  const used = new Set(partLayers.flatMap((l) => [l.outer, ...l.holes, ...l.marks, ...l.notes]));
-  const layers: [string, number][] = [
-    ...(Object.entries(DXF_LAYERS) as [DxfLayer, number][]),
-    ...[...names.colors].filter(([n]) => used.has(n)),
-  ];
   dxf
     .pair(0, 'SECTION')
     .pair(2, 'TABLES')
@@ -363,47 +481,16 @@ export function writeSheetDxf(
     .pair(2, 'LAYER')
     .pair(70, String(layers.length + 1));
   // Vrstva 0 existuje v každém výkresu; některé starší čtečky ji vyžadují.
-  for (const [name, color] of [['0', 7], ...layers] as const) {
+  for (const [name, color] of [['0', 7] as const, ...layers]) {
     dxf.pair(0, 'LAYER').pair(2, name).pair(70, '0').pair(62, String(color)).pair(6, 'CONTINUOUS');
   }
   dxf.pair(0, 'ENDTAB').pair(0, 'ENDSEC');
 
   dxf.pair(0, 'SECTION').pair(2, 'ENTITIES');
-  writeContour(dxf, rectContour(sheetRect), 'TABULE', opts);
-  for (const z of sheet.forbiddenZones) {
-    writeContour(
-      dxf,
-      z.polygon.map((p) => ({ x: p.x, y: p.y, bulge: 0 })),
-      'TABULE',
-      opts,
-    );
-  }
-  if (opts.remnant) writeContour(dxf, rectContour(opts.remnant), 'ZBYTEK', opts);
-  placed.forEach(({ contours: c }, i) => {
-    const layer = partLayers[i]!;
-    writeContour(dxf, c.outer, layer.outer, opts);
-    c.holes.forEach((h, k) => writeContour(dxf, h, layer.holes[k]!, opts));
-    (c.marks ?? []).forEach((m, k) => {
-      for (const s of m.segments) writeSegment(dxf, s, layer.marks[k]!);
-    });
-    (c.notes ?? []).forEach((n, k) => writeNote(dxf, n, layer.notes[k]!));
-  });
-  if (opts.labels !== false) {
-    for (const { label } of placed) {
-      const { labelAt } = label;
-      // Výška velkých písmen ≈ 0,7 × velikost písma (stejná velikost jako SVG a náhled).
-      const height = 0.7 * labelSize(label);
-      if (!(height > 0)) continue;
-      // Zarovnání na střed (72 = 1) a doprostřed výšky (73 = 2) podle bodu 11/21.
-      dxf
-        .entity('TEXT', 'POPISKY')
-        .point(labelAt)
-        .pair(40, height)
-        .pair(1, dxfText(label.part.name))
-        .pair(72, '1')
-        .pair(73, '2')
-        .point(labelAt, 11);
-    }
+  for (const item of items) {
+    if (item.kind === 'contour') writeContour(dxf, item.contour, item.layer, opts);
+    else if (item.kind === 'segment') writeSegment(dxf, item.segment, item.layer);
+    else writeNote(dxf, item.note, item.layer);
   }
   dxf.pair(0, 'ENDSEC').pair(0, 'EOF');
   return dxf.toString();
@@ -419,19 +506,37 @@ export function writeResultDxf(
   project: string,
   opts: DxfOptions = {},
   groups: readonly SheetGroup[] = singleSheetGroups(result),
+  only?: number,
 ): ExportFile[] {
+  return resultSheets(input, result, project, groups, only).map((s) => ({
+    name: s.name,
+    content: writeSheetDxf(s.sheet, s.layout, input.parts, { remnant: s.remnant, ...opts }),
+  }));
+}
+
+/**
+ * Tabule (skupiny) výsledku k exportu: název souboru, tabule, rozložení,
+ * zbytek. `only` = jen tato skupina (číslování v názvu podle všech skupin).
+ */
+export function resultSheets(
+  input: NestingInput,
+  result: NestingResult,
+  project: string,
+  groups: readonly SheetGroup[],
+  only?: number,
+): { name: string; sheet: Sheet; layout: SheetLayout; remnant: Rect | null }[] {
   const sheets = new Map(input.sheets.map((s) => [s.id, s]));
-  return groups.map((group, g) => {
+  const picked = groups.map((group, g) => ({ group, g }));
+  return (only === undefined ? picked : picked.slice(only, only + 1)).map(({ group, g }) => {
     const i = group.indices[0]!;
     const layout = result.layouts[i]!;
     const sheet = sheets.get(layout.sheetId);
     if (!sheet) throw new RangeError(`Rozložení odkazuje na neznámou tabuli „${layout.sheetId}".`);
     return {
       name: sheetFileName(project, g, groups.length, 'dxf', group.indices.length),
-      content: writeSheetDxf(sheet, layout, input.parts, {
-        remnant: result.metrics.sheets[i]?.remnant ?? null,
-        ...opts,
-      }),
+      sheet,
+      layout,
+      remnant: result.metrics.sheets[i]?.remnant ?? null,
     };
   });
 }

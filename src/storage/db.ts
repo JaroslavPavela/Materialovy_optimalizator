@@ -19,6 +19,9 @@ export interface ProjectStorage {
   /** Volba „přenášet texty i z hladin obrysů" (boolean, jinak se ignoruje). */
   loadNotesFromAllLayers(): Promise<unknown>;
   saveNotesFromAllLayers(value: boolean): Promise<void>;
+  /** Verze exportu DXF (ověří `isDxfVersion`). */
+  loadDxfVersion(): Promise<unknown>;
+  saveDxfVersion(version: string): Promise<void>;
 }
 
 interface SettingRow {
@@ -41,6 +44,7 @@ interface SheetFormatRow {
 const LAST_PROJECT = 'posledni';
 const LAYER_ROLES = 'role-hladin';
 const NOTES_FROM_ALL = 'texty-z-obrysu';
+const DXF_VERSION = 'verze-dxf';
 
 class AppDb extends Dexie {
   projects!: EntityTable<ProjectRow, 'id'>;
@@ -87,6 +91,12 @@ export function createDexieStorage(): ProjectStorage {
     },
     async saveNotesFromAllLayers(value) {
       await db.settings.put({ id: NOTES_FROM_ALL, value });
+    },
+    async loadDxfVersion() {
+      return (await db.settings.get(DXF_VERSION))?.value ?? null;
+    },
+    async saveDxfVersion(version) {
+      await db.settings.put({ id: DXF_VERSION, value: version });
     },
   };
 }

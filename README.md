@@ -166,19 +166,28 @@ souboru DWG.
 
 ## Export DXF
 
-DXF R12 (AC1009) ASCII v mm – přečte ho prakticky každý CAM. Vrstvy
-`TABULE` (obrys tabule a zakázané zóny), `POPISKY` (názvy dílů) a `ZBYTEK`
-(obdélník využitelného zbytku tabule). Díly z DXF a DWG mají obrysy, otvory
-i přidanou geometrii na vrstvách podle původních hladin výkresu – název je
-převedený na platný název R12 (velká písmena bez diakritiky, znaky mimo
-A–Z, 0–9, `$ - _` jako `_`, nejvýš 31 znaků; `Gravír` → `GRAVIR`). Hladiny,
-které by po převodu splynuly nebo se jmenují jako vrstvy exportu, dostanou
+Verze se volí v panelu Export (aplikace si volbu pamatuje):
+
+| Verze             | Kdy použít                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| DXF 2018 (AC1032) | výchozí – současný CAM a AutoCAD; text v UTF-8, vrstvy s původními názvy hladin včetně diakritiky a mezer      |
+| DXF 2000 (AC1015) | starší CAM, který 2018 neotevře; vrstvy s původními názvy, znaky mimo ASCII zapsané jako `\U+XXXX`             |
+| DXF R12 (AC1009)  | velmi starý CAM; názvy vrstev převedené na velká písmena bez diakritiky (`Gravír` → `GRAVIR`, nejvýš 31 znaků) |
+
+Vrstvy ve všech verzích: `TABULE` (obrys tabule a zakázané zóny), `POPISKY`
+(názvy dílů), `ZBYTEK` (obdélník využitelného zbytku tabule) a díly z DXF
+a DWG na vrstvách podle původních hladin výkresu. Hladiny, které by splynuly
+(i jen velikostí písmen) nebo se jmenují jako vrstvy exportu, dostanou
 příponu `_2`, `_3`…; táž hladina má stejný název ve všech souborech exportu.
 Díly z CSV a díly z hladin `0`, `DILY` nebo `OTVORY` jsou na vrstvách `DILY`
-(vnější obrysy) a `OTVORY` (otvory); přidaná geometrie z hladiny 0 na `0`. Obrysy jako
-uzavřené POLYLINE s oblouky (bulge), plné kruhy jako CIRCLE, přidaná
-geometrie jako LINE a ARC. Jeden soubor na tabuli, všechny tabule v ZIP.
-G-kód ani pořadí řezů se negenerují – to je úloha CAM.
+(vnější obrysy) a `OTVORY` (otvory); přidaná geometrie z hladiny 0 na `0`.
+Obrysy jsou uzavřené křivky s oblouky (v 2000 a 2018 LWPOLYLINE, v R12
+POLYLINE), plné kruhy CIRCLE, přidaná geometrie LINE a ARC, poznámky
+a popisky TEXT. Jeden soubor na tabuli, všechny tabule v ZIP. G-kód ani
+pořadí řezů se negenerují – to je úloha CAM. Verze 2000 a 2018 zapisuje
+knihovna [acad-ts](https://github.com/node-projects/acad-ts) (MIT) se
+strukturou jako z AutoCADu; při prvním exportu v těchto verzích se načte
+(~0,8 MB, stejná jako pro čtení DWG).
 
 ## Omezení
 

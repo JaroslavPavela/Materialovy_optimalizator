@@ -60,7 +60,8 @@ test('hladiny výkresu: volba rolí → plán → export DXF s původními hladi
   const parsed = new DxfParser().parseSync(readFileSync(path, 'latin1'))!;
   const types = (layer: string) =>
     parsed.entities.filter((e) => e.layer === layer).map((e) => e.type);
-  expect(types('OBRYS')).toEqual(['POLYLINE', 'POLYLINE']);
+  // Výchozí DXF 2018: obrysy jako LWPOLYLINE.
+  expect(types('OBRYS')).toEqual(['LWPOLYLINE', 'LWPOLYLINE']);
   expect(types('DIRY')).toEqual(['CIRCLE', 'CIRCLE']);
   expect(types('OHYB')).toEqual(['LINE', 'LINE']);
   expect(types('KOTY')).toEqual([]);

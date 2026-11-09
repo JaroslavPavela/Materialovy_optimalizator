@@ -4,7 +4,9 @@ import { expect, test } from '@playwright/test';
 import { strFromU8, unzipSync } from 'fflate';
 import { fillFields, TEST_SHEET_AND_PART } from './zadani.ts';
 
-test('výpočet → stažení DXF tabule a ZIP všech tabulí', async ({ page }, testInfo) => {
+test('výpočet → stažení DXF tabule a ZIP všech tabulí ve verzích 2018, 2000 a R12', async ({
+  page,
+}, testInfo) => {
   const errors: string[] = [];
   page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text());
@@ -20,27 +22,39 @@ test('výpočet → stažení DXF tabule a ZIP všech tabulí', async ({ page },
   await page.getByRole('button', { name: 'Vypočítat' }).click();
   await expect(page.getByRole('tab').nth(1)).toBeVisible();
 
-  const dxfDownload = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'DXF tabule 1' }).click();
-  const dxf = await dxfDownload;
-  expect(dxf.suggestedFilename()).toBe('narezovy-plan-tabule-01.dxf');
-  const dxfPath = testInfo.outputPath('tabule.dxf');
-  await dxf.saveAs(dxfPath);
-  const text = readFileSync(dxfPath, 'utf8');
-  expect(text).toContain('AC1009');
-  expect(text).toContain('\\U+010Celo');
+  // Výchozí verze 2018 (UTF-8), pak 2000 a R12 (znaky mimo ASCII jako \\U+XXXX).
+  const versions = [
+    ['2018', 'AC1032', 'Čelo'],
+    ['2000', 'AC1015', '\\U+010Celo'],
+    ['R12', 'AC1009', '\\U+010Celo'],
+  ] as const;
+  await expect(page.getByLabel('Verze DXF')).toHaveValue('2018');
+  for (const [version, code, name] of versions) {
+    await page.getByLabel('Verze DXF').selectOption(version);
+    const dxfDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'DXF tabule 1' }).click();
+    const dxf = await dxfDownload;
+    expect(dxf.suggestedFilename()).toBe('narezovy-plan-tabule-01.dxf');
+    const dxfPath = testInfo.outputPath(`tabule-${version}.dxf`);
+    await dxf.saveAs(dxfPath);
+    const text = readFileSync(dxfPath, 'utf8');
+    expect(text).toContain(code);
+    expect(text).toContain(name);
 
-  const zipDownload = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'DXF všech tabulí (ZIP)' }).click();
-  const zip = await zipDownload;
-  expect(zip.suggestedFilename()).toBe('narezovy-plan-dxf.zip');
-  const zipPath = testInfo.outputPath('vse.zip');
-  await zip.saveAs(zipPath);
-  const files = unzipSync(new Uint8Array(readFileSync(zipPath)));
-  const names = Object.keys(files);
-  expect(names.length).toBe(await page.getByRole('tab').count());
-  expect(names[0]).toBe('narezovy-plan-tabule-01.dxf');
-  expect(strFromU8(files[names[0]!]!)).toBe(text);
+    const zipDownload = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'DXF všech tabulí (ZIP)' }).click();
+    const zip = await zipDownload;
+    expect(zip.suggestedFilename()).toBe('narezovy-plan-dxf.zip');
+    const zipPath = testInfo.outputPath(`vse-${version}.zip`);
+    await zip.saveAs(zipPath);
+    const files = unzipSync(new Uint8Array(readFileSync(zipPath)));
+    const names = Object.keys(files);
+    expect(names.length).toBe(await page.getByRole('tab').count());
+    expect(names[0]).toBe('narezovy-plan-tabule-01.dxf');
+    // Časy vytvoření a změny ($TDCREATE, $TDUPDATE…) se liší podle okamžiku zápisu.
+    const timeless = (t: string) => t.replace(/(\$TD\w+\s*\r?\n\s*40\s*\r?\n)[^\r\n]*/g, '$1');
+    expect(timeless(strFromU8(files[names[0]!]!))).toBe(timeless(text));
+  }
 
   expect(errors).toEqual([]);
 });
@@ -139,9 +153,11 @@ test('CSV → výpočet → stažení DXF, SVG a CSV bez chyby', async ({ page }
   };
 
   const dxf = (await save('DXF tabule 1', /^narezovy-plan-tabule-01\.dxf$/)).toString('latin1');
-  expect(dxf).toMatch(/^0\r\nSECTION\r\n/);
-  expect(dxf.endsWith('0\r\nEOF\r\n')).toBe(true);
-  expect(dxf.match(/\r\nDILY\r\n/g)?.length).toBeGreaterThan(0);
+  // Výchozí DXF 2018.
+  expect(dxf).toMatch(/^\s*0\r?\nSECTION\r?\n/);
+  expect(dxf).toMatch(/\n\s*0\r?\nEOF\s*$/);
+  expect(dxf).toContain('AC1032');
+  expect(dxf.match(/\nDILY\r?\n/g)?.length).toBeGreaterThan(0);
 
   const svg = (await save('SVG tabule 1', /^narezovy-plan-tabule-01\.svg$/)).toString('utf8');
   expect(svg).toMatch(/^<\?xml version="1.0" encoding="UTF-8"\?>\n<svg /);

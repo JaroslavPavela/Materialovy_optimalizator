@@ -173,13 +173,18 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       a zarovnání zůstanou.
       Hotovo: jednotkové testy čtení, přiřazení, umístění a zápisu poznámek;
       E2E hladina s texty → přidej k dílu → náhled a export DXF s TEXT.
+- [x] 8.6 Export DXF 2000 a 2018: volba verze v panelu Export (výchozí
+      2018, pamatuje se), R12 beze změny; ve verzích 2000 a 2018 vrstvy
+      s původními názvy hladin včetně diakritiky a mezer.
+      Hotovo: zpětné čtení vlastním importem, dxf-parserem a čtečkou acad-ts;
+      E2E stažení DXF a ZIP ve všech třech verzích.
 
 ---
 
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: feat: textové poznámky z výkresu přenášené s dílem (krok 8.5)
+Poslední commit: feat: export DXF ve verzích 2000 a 2018 (krok 8.6)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -636,3 +641,40 @@ BLOKOVÁNO: ne
   Opravena i chyba kroku 8.4: hromadná náhrada v CSS rozbila pravidlo
   `.sheet-card svg .part:hover`, takže v náhledu nefungovalo zvýraznění
   dílu pod myší.
+- 8.6: Na přání uživatele (výchozí 2018, ve 2000/2018 původní názvy hladin).
+  Výkres tabule sestavuje jednou `sheetDrawing` (prvky contour/segment/text,
+  vrstvy, meze); R12 ho serializuje vlastním zapisovačem beze změny výstupu,
+  2000 a 2018 knihovnou acad-ts (už v projektu kvůli DWG) – vlastní zápis
+  R2000+ by vyžadoval celou strukturu objektů (identifikátory, BLOCK_RECORD,
+  LAYOUT, slovníky) a nešel by tu ověřit v AutoCADu. acad-ts vybírá zápis
+  tabulek podle `constructor.name`, proto export 2000/2018 běží ve workeru
+  (build s keepNames) a je asynchronní; R12 dál přímo v UI. Verze 2000:
+  kódová stránka ANSI_1252 a znaky mimo ASCII jako `\U+XXXX` (i v názvech
+  vrstev, tak to dělá AutoCAD); import nově `\U+` dekóduje i v názvech
+  vrstev. Verze 2018 v UTF-8. Názvy vrstev 2000+: zakázané znaky
+  (< > / \ " : ; ? * | = a obrácený apostrof) a řídicí znaky jako `_`, nejvýš 255 znaků;
+  kolize bez ohledu na velikost písmen (AutoCAD názvy nerozlišuje).
+  Čtečka acad-ts dekóduje podle `$DWGCODEPAGE` i u DXF 2007+ (AutoCAD je čte
+  vždy jako UTF-8) – testy jí ověřují strukturu a počty, diakritiku vlastní
+  import a dxf-parser. Hlavička 2000/2018 nese časy vytvoření (`$TDCREATE`),
+  takže dva exporty téhož nejsou bajtově shodné. `LayerNames` bez
+  parametrových vlastností konstruktoru (jádro spouští i Node s odstraněním
+  typů). Výchozí verze 2018 změnila očekávání E2E (formát R12 se ověřuje
+  výslovnou volbou R12).
+  Revize subagentem revize-geometrie (R12 proti HEAD: 54 z 57 souborů
+  bajtově shodných, zbylé tři se liší jen tím, že vrstva poznámky s prázdným
+  textem už není v tabulce LAYER) našla 4 významné a 10 drobných problémů;
+  opraveno s testy: acad-ts u DXF 2000 tiše vynechá vrstvu s názvem nad
+  31 znaků a obě verze vrstvu s čárkou – názvy pro 2000 se zkracují na 31
+  znaků (znaky mimo BMP jako „_"), čárka je zakázaný znak a hlášení
+  zapisovače (varování, chyba) export zastaví chybou místo tichého vynechání;
+  export jedné tabule zapisoval všechny (teď jen vybranou skupinu);
+  doplněna rozvržení Model a Layout1 (LAYOUT, ACAD_LAYOUT, odkaz z
+  BLOCK_RECORD), $EXTMIN/$EXTMAX a přesnost čísel 9 míst bez exponentu;
+  úhly ARC v [0, 360); text poznámek a popisků escapuje „%" a „\" jako R12;
+  zrušený výpočet odmítne i čekající import a export (jinak by tlačítka DXF
+  zůstala zablokovaná) a soubor ze starého výsledku se nestáhne. Neověřeno:
+  otevření v AutoCADu / DWG TrueView (v prostředí nejsou) – struktura
+  odpovídá zápisu ACadSharp, ověřují ji tolerantní čtečky (dxf-parser,
+  acad-ts, vlastní import). Prázdné slovníky (ACAD_GROUP) acad-ts záměrně
+  nezapisuje.

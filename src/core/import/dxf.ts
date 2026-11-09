@@ -463,13 +463,19 @@ const MTEXT_CODE =
   /\\([\\{}])|\\[PX~]|\\S([^;]*?)[\^#/]([^;]*);|\\[LlOoKkNn]|\\[ACcFfHQTWp][^;]*;|[{}]/g;
 
 /**
+ * Znaky \U+XXXX (DXF do verze 2004 je tak zapisuje mimo kódovou stránku,
+ * i v názvech vrstev) jako znaky.
+ */
+export function decodeDxfUnicode(s: string): string {
+  return s.replace(/\\U\+([0-9A-Fa-f]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
+}
+
+/**
  * Text bez formátování: kódy MTEXT, speciální znaky %%c, %%d, %%p, %%nnn,
  * podtržení %%u, %%o, řídicí znaky ^J ^I ^M a \U+XXXX (DXF R12).
  */
 export function plainDxfText(raw: string, mtext: boolean): string {
-  let t = raw.replace(/\\U\+([0-9A-Fa-f]{4})/g, (_, h: string) =>
-    String.fromCharCode(parseInt(h, 16)),
-  );
+  let t = decodeDxfUnicode(raw);
   if (mtext) {
     t = t.replace(MTEXT_CODE, (m, escaped?: string, num?: string, den?: string) => {
       if (escaped !== undefined) return escaped;
@@ -963,7 +969,7 @@ function walk(
     if (out.overflow) return;
     if (raw.inPaperSpace === true) continue;
     const type = String(raw.type);
-    const own = String(raw.layer ?? '0');
+    const own = decodeDxfUnicode(String(raw.layer ?? '0'));
     const layer = own === '0' && inherited !== null ? inherited : own;
     if (IGNORED.has(type)) {
       out.count(out.ignored, type);
@@ -1147,7 +1153,7 @@ export function readDxf(
   const hiddenLayers = new Set(
     Object.entries(layers)
       .filter(([, l]) => l.frozen === true || l.visible === false)
-      .map(([name]) => name),
+      .map(([name]) => decodeDxfUnicode(name)),
   );
   walk(
     (dxf.entities ?? []) as unknown as Entity[],

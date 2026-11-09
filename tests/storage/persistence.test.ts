@@ -13,6 +13,7 @@ function memoryStorage(project: unknown = null, library: unknown[] = [], roles: 
     library,
     roles,
     notesFromAll: null as unknown,
+    dxfVersion: null as unknown,
     projectWrites: 0,
     libraryWrites: 0,
     rolesWrites: 0,
@@ -32,6 +33,11 @@ function memoryStorage(project: unknown = null, library: unknown[] = [], roles: 
     },
     loadLayerRoles: () => Promise.resolve(data.roles),
     loadNotesFromAllLayers: () => Promise.resolve(data.notesFromAll),
+    loadDxfVersion: () => Promise.resolve(data.dxfVersion),
+    saveDxfVersion: (v: string) => {
+      data.dxfVersion = v;
+      return Promise.resolve();
+    },
     saveNotesFromAllLayers: (v: boolean) => {
       data.notesFromAll = v;
       return Promise.resolve();
@@ -139,6 +145,21 @@ describe('initPersistence', () => {
     data.notesFromAll = 'ano';
     await (await initPersistence(storage)).dispose();
     expect(state().notesFromAllLayers).toBe(false);
+  });
+
+  it('verze DXF se uloží hned a načte zpět; neznámá hodnota = výchozí 2018', async () => {
+    const { storage, data } = memoryStorage();
+    data.dxfVersion = 'R12';
+    const p = await initPersistence(storage);
+    expect(state().dxfVersion).toBe('R12');
+    state().setDxfVersion('2000');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(data.dxfVersion).toBe('2000');
+    await p.dispose();
+    resetAppStore();
+    data.dxfVersion = 'R14';
+    await (await initPersistence(storage)).dispose();
+    expect(state().dxfVersion).toBe('2018');
   });
 
   it('poškozená data v úložišti se přeskočí s varováním', async () => {

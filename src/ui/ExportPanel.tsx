@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { writeResultCsv } from '../core/export/csv.ts';
-import { writeResultDxf, writeSheetDxf } from '../core/export/dxf-writer.ts';
+import { DXF_VERSIONS, type DxfVersion } from '../core/export/dxf-writer.ts';
 import { safeFileStem, sheetFileName, zipFiles } from '../core/export/files.ts';
 import { partColors, writeResultSvg, writeSheetSvg } from '../core/export/svg.ts';
 import { useAppStore } from '../state/store.ts';
@@ -16,6 +16,12 @@ const SVG_TYPE = 'image/svg+xml';
 const ZIP_TYPE = 'application/zip';
 const CSV_TYPE = 'text/csv;charset=utf-8';
 
+const DXF_VERSION_LABELS: Record<DxfVersion, string> = {
+  '2018': 'DXF 2018',
+  '2000': 'DXF 2000',
+  R12: 'DXF R12',
+};
+
 /** Export plánu: DXF a SVG aktuální tabule nebo všech (ZIP), CSV seznam dílů, tisk a PDF. */
 export function ExportPanel() {
   const result = useAppStore((s) => s.result);
@@ -23,6 +29,11 @@ export function ExportPanel() {
   const grouped = useAppStore((s) => s.groupSheets);
   const { groups, active: index } = useSheetGroups();
   const running = useAppStore((s) => s.status === 'running');
+  const dxfVersion = useAppStore((s) => s.dxfVersion);
+  const setDxfVersion = useAppStore((s) => s.setDxfVersion);
+  const exportFiles = useAppStore((s) => s.exportDxf);
+  const [dxfBusy, setDxfBusy] = useState(false);
+  const [dxfError, setDxfError] = useState<string | null>(null);
   const [paper, setPaper] = useState<PaperSize>('A4');
   const [printDate, setPrintDate] = useState<Date | null>(null);
   if (!result || !input || result.layouts.length === 0) return null;
@@ -38,13 +49,21 @@ export function ExportPanel() {
   const repeated = grouped && count < result.layouts.length ? groups : undefined;
   const sheetLabel = `tabule ${index + 1}${copies > 1 ? ` (× ${copies})` : ''}`;
 
-  const exportDxf = () => {
-    if (!sheet) return;
-    download(
-      sheetFileName(PROJECT, index, count, 'dxf', copies),
-      writeSheetDxf(sheet, layout, input.parts, { remnant }),
-      DXF_TYPE,
-    );
+  /** DXF ve zvolené verzi – 2000 a 2018 se zapisují ve workeru (asynchronně). */
+  const runDxf = async (all: boolean) => {
+    setDxfBusy(true);
+    setDxfError(null);
+    try {
+      const files = await exportFiles(PROJECT, groups, all ? undefined : index);
+      // Během zápisu doběhl nový výpočet – soubor ze starého výsledku nestahovat.
+      if (useAppStore.getState().result !== result) return;
+      if (all) download(`${PROJECT}-dxf.zip`, zipFiles(files), ZIP_TYPE);
+      else if (files[0]) download(files[0].name, files[0].content, DXF_TYPE);
+    } catch (e) {
+      setDxfError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDxfBusy(false);
+    }
   };
   const exportSvg = () => {
     if (!sheet) return;
@@ -69,23 +88,33 @@ export function ExportPanel() {
     <section className="panel export">
       <h2>Export</h2>
       <div className="row">
-        <button type="button" disabled={running || !sheet} onClick={exportDxf}>
-          DXF {sheetLabel}
-        </button>
+        <select
+          aria-label="Verze DXF"
+          value={dxfVersion}
+          onChange={(e) => setDxfVersion(e.target.value as DxfVersion)}
+        >
+          {DXF_VERSIONS.map((v) => (
+            <option key={v} value={v}>
+              {DXF_VERSION_LABELS[v]}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
-          disabled={running}
-          onClick={() =>
-            download(
-              `${PROJECT}-dxf.zip`,
-              zipFiles(writeResultDxf(input, result, PROJECT, {}, groups)),
-              ZIP_TYPE,
-            )
-          }
+          disabled={running || !sheet || dxfBusy}
+          onClick={() => void runDxf(false)}
         >
+          DXF {sheetLabel}
+        </button>
+        <button type="button" disabled={running || dxfBusy} onClick={() => void runDxf(true)}>
           DXF všech tabulí (ZIP)
         </button>
       </div>
+      {dxfError && (
+        <p className="errors" role="alert">
+          Export DXF selhal: {dxfError}
+        </p>
+      )}
       <div className="row">
         <button type="button" disabled={running || !sheet} onClick={exportSvg}>
           SVG {sheetLabel}
@@ -133,8 +162,9 @@ export function ExportPanel() {
         </button>
       </div>
       <p className="muted hint">
-        DXF R12 v mm: vrstvy TABULE, POPISKY a díly na hladinách z výkresu (díly z CSV na DILY a
-        OTVORY); oblouky zůstávají oblouky. PDF vytvoříte tiskem do PDF.
+        DXF v mm: vrstvy TABULE, POPISKY a díly na hladinách z výkresu (díly z CSV na DILY a
+        OTVORY); oblouky zůstávají oblouky. Verze 2018 a 2000 zachovají názvy hladin s diakritikou,
+        R12 je pro starší CAM (názvy vrstev bez diakritiky). PDF vytvoříte tiskem do PDF.
         {repeated &&
           ' Stejné tabule se exportují jednou, počet opakování je v názvu souboru (např. -4x).'}
       </p>

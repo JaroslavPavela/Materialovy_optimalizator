@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { parsePartsCsv } from '../core/import/csv.ts';
 import type { DxfPartMode, DxfPartsResult } from '../core/import/dxf-parts.ts';
 import type { LayerRole, LayerRoles } from '../core/import/layers.ts';
+import { writeResultDxf, type DxfVersion } from '../core/export/dxf-writer.ts';
+import type { ExportFile } from '../core/export/files.ts';
+import type { SheetGroup } from '../core/sheet-groups.ts';
 import {
   DEFAULT_NESTING_PARAMS,
   type ForbiddenZone,
@@ -56,6 +59,8 @@ export interface AppState {
   readonly layerRoles: LayerRoles;
   /** Texty s dílem přenášet i z hladin obrysů (pamatuje se). */
   readonly notesFromAllLayers: boolean;
+  /** Verze exportu DXF (pamatuje se). */
+  readonly dxfVersion: DxfVersion;
   readonly projectReport: ProjectReport | null;
   /** Uložené formáty tabulí – sdílené mezi projekty. */
   readonly sheetLibrary: readonly Sheet[];
@@ -96,6 +101,13 @@ export interface AppActions {
   setLayerRoles(roles: LayerRoles): void;
   /** Přenášet texty i z hladin obrysů; znovu načte výkresy (`reload` = false: jen nastavit). */
   setNotesFromAllLayers(value: boolean, reload?: boolean): Promise<void>;
+  setDxfVersion(version: DxfVersion): void;
+  /**
+   * Soubory DXF posledního výsledku ve zvolené verzi pro skupiny tabulí
+   * `groups` (`only` = jen jedna skupina). R12 se zapíše hned, 2000 a 2018
+   * ve workeru.
+   */
+  exportDxf(project: string, groups: readonly SheetGroup[], only?: number): Promise<ExportFile[]>;
   /** Nahradí zadání projektem (z úložiště nebo souboru); běžící výpočet zruší. */
   loadProject(project: Project): void;
   /** Načte projekt z textu JSON; při chybě zadání nezmění. */
@@ -188,6 +200,7 @@ const initialState: AppState = {
   drawings: [],
   layerRoles: new Map(),
   notesFromAllLayers: false,
+  dxfVersion: '2018',
   projectReport: null,
   sheetLibrary: [],
   status: 'idle',
@@ -474,6 +487,30 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   setLayerRoles(roles) {
     set({ layerRoles: roles });
+  },
+
+  setDxfVersion(version) {
+    set({ dxfVersion: version });
+  },
+
+  async exportDxf(project, groups, only) {
+    const { result, resultInput: input, dxfVersion: version } = get();
+    if (!result || !input) return [];
+    if (version === 'R12') return writeResultDxf(input, result, project, {}, groups, only);
+    try {
+      return await getClient().writeDxf({
+        input,
+        result,
+        project,
+        version,
+        groups,
+        ...(only !== undefined && { only }),
+      });
+    } catch (e) {
+      // Worker byl ukončen (zrušený výpočet) – export se tiše zahodí.
+      if (e instanceof NestingAbortedError) return [];
+      throw e;
+    }
   },
 
   async setNotesFromAllLayers(value, reload = true) {

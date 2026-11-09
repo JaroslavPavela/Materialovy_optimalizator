@@ -4,6 +4,9 @@ import {
   type DxfPartsResult,
 } from '../core/import/dxf-parts.ts';
 import { dwgVersionCode } from '../core/import/dwg-format.ts';
+import type { ModernDxfVersion } from '../core/export/dxf-acad.ts';
+import type { ExportFile } from '../core/export/files.ts';
+import type { SheetGroup } from '../core/sheet-groups.ts';
 import type { NestingInput, NestingResult } from '../core/model.ts';
 import { nestSteps, type NestOutcome, type NestProgress } from '../core/nesting/nest.ts';
 
@@ -31,6 +34,21 @@ export interface NestingService {
     data: ArrayBuffer,
     opts: DxfImportOptions,
   ): Promise<DxfPartsResult>;
+  /**
+   * DXF 2000 nebo 2018 (knihovna acad-ts – jen ve workeru, viz dxf-acad.ts):
+   * skupiny tabulí `groups`, případně jen skupina `only`.
+   */
+  writeDxf(request: DxfExportRequest): Promise<ExportFile[]>;
+}
+
+export interface DxfExportRequest {
+  readonly input: NestingInput;
+  readonly result: NestingResult;
+  readonly project: string;
+  readonly version: ModernDxfVersion;
+  readonly groups: readonly SheetGroup[];
+  /** Index skupiny – jen tento soubor (s číslováním podle všech skupin). */
+  readonly only?: number;
 }
 
 /** Volby importu DXF/DWG přenositelné do workeru (bez funkcí). */
@@ -95,6 +113,10 @@ export function createNestingService(
         return partsFromDwg(fileName, data, opts);
       }
       return partsFromDxf(fileName, data, opts);
+    },
+    async writeDxf({ input, result, project, version, groups, only }) {
+      const { writeResultDxfModern } = await import('../core/export/dxf-acad.ts');
+      return writeResultDxfModern(input, result, project, version, {}, groups, only);
     },
   };
 }
