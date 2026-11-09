@@ -5,7 +5,10 @@ import {
   type NestingMode,
   type NestingParams,
   type Part,
+  type PartMarks,
   type PartShape,
+  type ShapeLayers,
+  type ShapeSegment,
   type RotationMode,
   type Sheet,
 } from './model.ts';
@@ -133,7 +136,57 @@ class Reader {
     const outer = this.contour(v.outer, where);
     const holes = v.holes.map((h) => this.contour(h, where));
     if (!outer || holes.some((h) => h === null)) return null;
-    return { outer, holes: holes as Contour[] };
+    const layers = this.shapeLayers(v.layers, where);
+    const marks = this.marks(v.marks, where);
+    if (layers === null || marks === null) return null;
+    return {
+      outer,
+      holes: holes as Contour[],
+      ...(layers && { layers }),
+      ...(marks && { marks }),
+    };
+  }
+
+  shapeLayers(v: unknown, where: string): ShapeLayers | undefined | null {
+    if (v === undefined || v === null) return undefined;
+    if (
+      !isObj(v) ||
+      typeof v.outer !== 'string' ||
+      !Array.isArray(v.holes) ||
+      !v.holes.every((h) => typeof h === 'string')
+    ) {
+      return this.fail(where, 'hladiny tvaru musí mít text u obrysu a seznam hladin otvorů.');
+    }
+    return { outer: v.outer, holes: v.holes as string[] };
+  }
+
+  marks(v: unknown, where: string): PartMarks[] | undefined | null {
+    if (v === undefined || v === null) return undefined;
+    const fail = () =>
+      this.fail(where, 'geometrie přidaná k dílu musí mít hladinu a segmenty s body a, b a bulge.');
+    if (!Array.isArray(v)) return fail();
+    const out: PartMarks[] = [];
+    for (const m of v) {
+      if (!isObj(m) || typeof m.layer !== 'string' || !Array.isArray(m.segments)) return fail();
+      const segments: ShapeSegment[] = [];
+      for (const g of m.segments) {
+        if (
+          !isObj(g) ||
+          !isObj(g.a) ||
+          !isObj(g.b) ||
+          !isNum(g.a.x) ||
+          !isNum(g.a.y) ||
+          !isNum(g.b.x) ||
+          !isNum(g.b.y) ||
+          !(g.bulge === undefined || isNum(g.bulge))
+        ) {
+          return fail();
+        }
+        segments.push({ a: { x: g.a.x, y: g.a.y }, b: { x: g.b.x, y: g.b.y }, bulge: g.bulge ?? 0 });
+      }
+      out.push({ layer: m.layer, segments });
+    }
+    return out;
   }
 
   part(v: unknown, i: number): Part | null {

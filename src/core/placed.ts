@@ -113,14 +113,26 @@ export function partContours(part: Part): PartShape {
 }
 
 /**
- * Obrysy umístěného dílu v souřadnicích tabule s původními oblouky (export).
- * Rotace zachovává orientaci, takže bulge zůstává beze změny.
+ * Obrysy umístěného dílu v souřadnicích tabule s původními oblouky (export),
+ * včetně hladin a přidané geometrie. Rotace zachovává orientaci, takže bulge
+ * zůstává beze změny.
  */
 export function placedContours(part: Part, placement: Placement): PartShape {
-  const { outer, holes } = partContours(part);
+  const { outer, holes, layers, marks } = partContours(part);
   const { rotation, x, y } = placement;
+  const place = (p: Point) => {
+    const r = rotatePoint(p, rotation);
+    return { x: r.x + x, y: r.y + y };
+  };
   return {
     outer: placeContour(outer, rotation, x, y),
     holes: holes.map((h) => placeContour(h, rotation, x, y)),
+    ...(layers && { layers }),
+    ...(marks && {
+      marks: marks.map((m) => ({
+        layer: m.layer,
+        segments: m.segments.map((s) => ({ a: place(s.a), b: place(s.b), bulge: s.bulge })),
+      })),
+    }),
   };
 }

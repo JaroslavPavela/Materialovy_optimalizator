@@ -61,6 +61,8 @@ export function partsFromDwg(
   if (!dxf.ok) {
     return {
       parts: [],
+      origins: [],
+      layers: [],
       units: { code: 4, name: 'mm', toMm: 1 },
       warnings: [],
       errors: [dxf.error],

@@ -1,11 +1,81 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { DxfPartMode } from '../core/import/dxf-parts.ts';
+import { layerRole, LAYER_ROLES, type LayerRole } from '../core/import/layers.ts';
+import { drawingInUse } from '../state/drawings.ts';
 import { useAppStore } from '../state/store.ts';
 
 const DXF_MODES: readonly { value: DxfPartMode; label: string }[] = [
   { value: 'single', label: '1 soubor = 1 díl' },
   { value: 'multi', label: 'více dílů v souboru' },
 ];
+
+const ROLE_LABELS: Record<LayerRole, string> = {
+  outer: 'vnější obrys',
+  inner: 'vnitřní obrys',
+  attach: 'přidej k dílu',
+  ignore: 'ignoruj',
+};
+
+/**
+ * Hladiny načtených výkresů s volbou role. Změna role díly z výkresů hned
+ * znovu načte; role se pamatují podle názvu hladiny i pro další výkresy.
+ */
+function LayerRolesTable() {
+  const drawings = useAppStore((s) => s.drawings);
+  const parts = useAppStore((s) => s.parts);
+  const roles = useAppStore((s) => s.layerRoles);
+  const setLayerRole = useAppStore((s) => s.setLayerRole);
+  const layers = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const d of drawings) {
+      if (!drawingInUse(d, parts)) continue;
+      for (const l of d.layers) count.set(l.name, (count.get(l.name) ?? 0) + l.segments);
+    }
+    return [...count].sort(([a], [b]) => a.localeCompare(b, 'cs'));
+  }, [drawings, parts]);
+  if (layers.length === 0) return null;
+
+  return (
+    <fieldset className="layer-roles">
+      <legend>Hladiny výkresů</legend>
+      <table>
+        <thead>
+          <tr>
+            <th>Hladina</th>
+            <th className="num">Segmentů</th>
+            <th>Použít jako</th>
+          </tr>
+        </thead>
+        <tbody>
+          {layers.map(([name, segments]) => (
+            <tr key={name}>
+              <td>{name}</td>
+              <td className="num">{segments}</td>
+              <td>
+                <select
+                  aria-label={`Role hladiny ${name}`}
+                  value={layerRole(roles, name)}
+                  onChange={(e) => void setLayerRole(name, e.target.value as LayerRole)}
+                >
+                  {LAYER_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </option>
+                  ))}
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted hint">
+        Vnější obrys: otvory se poznají podle vnoření. Vnitřní obrys: kontury jsou jen otvory. Přidej
+        k dílu: geometrie (gravírování, ohyby) jede s dílem, skládání ji nebere v úvahu. Export DXF
+        zachová názvy hladin. Volba se pamatuje pro další výkresy.
+      </p>
+    </fieldset>
+  );
+}
 
 /** Nahrání dílů z CSV, DXF nebo DWG – přetažením nebo výběrem, i víc souborů najednou. */
 export function FileDrop() {
@@ -77,6 +147,7 @@ export function FileDrop() {
         pojmenuje podle textu uvnitř obrysu (největší písmo); stejné díly se stejným textem se
         sečtou.
       </p>
+      <LayerRolesTable />
       {reports.map((r, i) => (
         <div key={i} className="import-report" role="status">
           <p>

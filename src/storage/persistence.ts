@@ -1,3 +1,4 @@
+import { layerRolesFromJson } from '../core/import/layers.ts';
 import type { Sheet } from '../core/model.ts';
 import { projectFromJson, sheetFromJson, toProjectFile } from '../core/project.ts';
 import { useAppStore } from '../state/store.ts';
@@ -14,17 +15,19 @@ export interface Persistence {
 }
 
 /**
- * Načte poslední projekt a knihovnu formátů do store a dál automaticky ukládá
- * jejich změny. Neplatná data v úložišti se přeskočí s varováním v konzoli.
+ * Načte poslední projekt, knihovnu formátů a role hladin do store a dál
+ * automaticky ukládá jejich změny. Neplatná data v úložišti se přeskočí
+ * s varováním v konzoli (u rolí hladin jen neplatné položky).
  */
 export async function initPersistence(
   storage: ProjectStorage,
   now: () => Date = () => new Date(),
 ): Promise<Persistence> {
   const store = useAppStore;
-  const [lastProject, library] = await Promise.all([
+  const [lastProject, library, roles] = await Promise.all([
     storage.loadLastProject(),
     storage.loadSheetLibrary(),
+    storage.loadLayerRoles(),
   ]);
   if (lastProject !== null && lastProject !== undefined) {
     const r = projectFromJson(lastProject);
@@ -33,6 +36,7 @@ export async function initPersistence(
   }
   const sheets = library.map(sheetFromJson).filter((s): s is Sheet => s !== null);
   store.getState().setSheetLibrary(sheets);
+  store.getState().setLayerRoles(layerRolesFromJson(roles));
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let projectDirty = false;
@@ -65,6 +69,13 @@ export async function initPersistence(
       projectDirty = true;
     }
     if (s.sheetLibrary !== prev.sheetLibrary) libraryDirty = true;
+    // Role hladin se mění zřídka (výběrem v seznamu) – uložit hned, bez prodlevy.
+    if (s.layerRoles !== prev.layerRoles) {
+      const roles = s.layerRoles;
+      writing = writing
+        .then(() => storage.saveLayerRoles(roles))
+        .catch((e: unknown) => console.warn('Uložení rolí hladin selhalo:', e));
+    }
     if ((projectDirty || libraryDirty) && timer === null) {
       timer = setTimeout(write, AUTOSAVE_DELAY_MS);
     }

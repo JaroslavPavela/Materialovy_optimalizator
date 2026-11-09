@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LayerRoles } from '../../src/core/import/layers.ts';
 import type { Sheet } from '../../src/core/model.ts';
 import { PROJECT_FORMAT, type ProjectFile } from '../../src/core/project.ts';
 import { resetAppStore, useAppStore } from '../../src/state/store.ts';
@@ -6,8 +7,8 @@ import type { ProjectStorage } from '../../src/storage/db.ts';
 import { AUTOSAVE_DELAY_MS, initPersistence } from '../../src/storage/persistence.ts';
 
 /** Úložiště v paměti; počítá zápisy. */
-function memoryStorage(project: unknown = null, library: unknown[] = []) {
-  const data = { project, library, projectWrites: 0, libraryWrites: 0 };
+function memoryStorage(project: unknown = null, library: unknown[] = [], roles: unknown = null) {
+  const data = { project, library, roles, projectWrites: 0, libraryWrites: 0, rolesWrites: 0 };
   const storage: ProjectStorage = {
     loadLastProject: () => Promise.resolve(data.project),
     saveLastProject: (file: ProjectFile) => {
@@ -19,6 +20,12 @@ function memoryStorage(project: unknown = null, library: unknown[] = []) {
     saveSheetLibrary: (sheets: readonly Sheet[]) => {
       data.library = JSON.parse(JSON.stringify(sheets));
       data.libraryWrites++;
+      return Promise.resolve();
+    },
+    loadLayerRoles: () => Promise.resolve(data.roles),
+    saveLayerRoles: (r: LayerRoles) => {
+      data.roles = JSON.parse(JSON.stringify([...r]));
+      data.rolesWrites++;
       return Promise.resolve();
     },
   };
@@ -81,6 +88,23 @@ describe('initPersistence', () => {
     state().setActiveSheet(2);
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS * 2);
     expect(data.projectWrites).toBe(0);
+    await p.dispose();
+  });
+
+  it('role hladin se ukládají zvlášť a načtou se zpět (neplatné položky se přeskočí)', async () => {
+    const { storage, data } = memoryStorage(null, [], [
+      ['OHYB', 'attach'],
+      ['X', 'nesmysl'],
+    ]);
+    const p = await initPersistence(storage);
+    expect([...state().layerRoles]).toEqual([['OHYB', 'attach']]);
+    expect(data.rolesWrites).toBe(0);
+    state().setLayerRoles(new Map([['DIRY', 'inner']]));
+    // Bez prodlevy automatického ukládání.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(data.rolesWrites).toBe(1);
+    expect(data.projectWrites).toBe(0);
+    expect(data.roles).toEqual([['DIRY', 'inner']]);
     await p.dispose();
   });
 

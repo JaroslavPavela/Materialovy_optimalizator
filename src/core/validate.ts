@@ -127,6 +127,14 @@ function shapeIssues(shape: PartShape, width: number, height: number): string[] 
     return ['tvar má neplatné souřadnice.'];
   }
   const issues: string[] = [];
+  if (shape.layers && shape.layers.holes.length !== shape.holes.length) {
+    issues.push('počet hladin otvorů neodpovídá počtu otvorů.');
+  }
+  const finitePoint = (p: { x: number; y: number }) => Number.isFinite(p.x) && Number.isFinite(p.y);
+  const marksOk = (shape.marks ?? []).every((m) =>
+    m.segments.every((g) => finitePoint(g.a) && finitePoint(g.b) && Number.isFinite(g.bulge)),
+  );
+  if (!marksOk) issues.push('geometrie přidaná k dílu má neplatné souřadnice.');
   const outer = contourOrientation(shape.outer);
   if (outer === 'degenerate') return ['vnější obrys má nulovou plochu.'];
   if (outer !== 'ccw')

@@ -9,7 +9,7 @@ import {
   setNestingClient,
   useAppStore,
 } from '../../src/state/store.ts';
-import { circle, dxf, rectPoly } from '../core/import/dxf-builder.ts';
+import { circle, dxf, line, rectPoly } from '../core/import/dxf-builder.ts';
 import type { NestingClient } from '../../src/worker/client.ts';
 import { createNestingService } from '../../src/worker/service.ts';
 
@@ -245,6 +245,141 @@ describe('store', () => {
 
     state().removeFromLibrary(libId);
     expect(state().sheetLibrary).toEqual([]);
+  });
+
+  it('hladiny: změna role znovu načte výkres, ruční úpravy zůstanou, role platí i pro další výkres', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    const plate = (x: number) =>
+      enc(
+        dxf({
+          entities: [
+            rectPoly(x, 0, 200, 100, [8, 'OBRYS']),
+            line(x + 100, 0, x + 100, 100, [8, 'OHYB']),
+          ],
+        }),
+      );
+    await state().importFiles([{ name: 'deska.dxf', data: plate(0) }]);
+    // Ohyb na hladině vnějšího obrysu je neuzavřená kontura – chyba, díl bez ohybu.
+    expect(state().parts).toHaveLength(1);
+    expect(state().parts[0]!.shape!.marks).toBeUndefined();
+    expect(state().drawings).toHaveLength(1);
+    expect(state().drawings[0]!.layers.map((l) => l.name)).toEqual(['OBRYS', 'OHYB']);
+    expect(state().importReports[0]!.errors.length).toBeGreaterThan(0);
+
+    await state().setLayerRole('OHYB', 'attach');
+    expect(state().layerRoles.get('OHYB')).toBe('attach');
+    expect(state().parts).toHaveLength(1);
+    expect(state().parts[0]!.shape!.marks).toEqual([
+      { layer: 'OHYB', segments: [{ a: { x: 100, y: 0 }, b: { x: 100, y: 100 }, bulge: 0 }] },
+    ]);
+    expect(state().importReports).toMatchObject([
+      { fileName: 'deska.dxf', partCount: 1, errors: [] },
+    ]);
+
+    const id = state().parts[0]!.id;
+    state().updatePart(id, { quantity: 4, material: 'Nerez' });
+    await state().setLayerRole('OHYB', 'ignore');
+    expect(state().parts).toHaveLength(1);
+    expect(state().parts[0]).toMatchObject({ id, quantity: 4, material: 'Nerez' });
+    expect(state().parts[0]!.shape!.marks).toBeUndefined();
+
+    // Další výkres se načte rovnou se zapamatovanou rolí.
+    await state().importFiles([{ name: 'druha.dxf', data: plate(500) }]);
+    expect(state().parts).toHaveLength(2);
+    expect(state().drawings).toHaveLength(2);
+
+    // Výkres, jehož díly uživatel odebral, se znovu nenačte.
+    state().removePart(id);
+    await state().setLayerRole('OHYB', 'attach');
+    expect(state().parts).toHaveLength(1);
+    expect(state().parts[0]!.shape!.marks).toHaveLength(1);
+    expect(state().importReports.map((r) => r.fileName)).toEqual(['druha.dxf']);
+
+    // CSV seznam dílů nahradí – výkresy zmizí; stejně tak smazání dílů.
+    await state().importCsv('utf8-bom.csv', fixture('utf8-bom.csv'));
+    expect(state().drawings).toEqual([]);
+    await state().importFiles([{ name: 'deska.dxf', data: plate(0) }]);
+    state().clearParts();
+    expect(state().drawings).toEqual([]);
+  });
+
+  it('hladiny: načtení projektu během nového načtení výkresu staré díly nevrátí; chyba workeru se nahlásí', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    const data = enc(dxf({ entities: [rectPoly(0, 0, 200, 100, [8, 'OBRYS'])] }));
+    await state().importFiles([{ name: 'deska.dxf', data }]);
+    expect(state().parts).toHaveLength(1);
+
+    // Pomalý worker: nové načtení čeká, než ho test pustí.
+    let release: () => void = () => {};
+    let fail = false;
+    setNestingClient({
+      ...syncClient,
+      importDrawing: (name, d, opts) =>
+        new Promise((resolve, reject) => {
+          release = () =>
+            fail
+              ? reject(new Error('worker spadl'))
+              : resolve(createNestingService().importDrawing(name, d, opts));
+        }),
+    });
+    const pending = state().setLayerRole('OBRYS', 'outer');
+    state().loadProject({ parts: [], sheets: [TEST_SHEET], params: DEFAULT_NESTING_PARAMS });
+    release();
+    await pending;
+    expect(state().parts).toEqual([]);
+    expect(state().drawings).toEqual([]);
+
+    setNestingClient(syncClient);
+    await state().importFiles([{ name: 'deska.dxf', data }]);
+    setNestingClient({
+      ...syncClient,
+      importDrawing: () => Promise.reject(new Error('worker spadl')),
+    });
+    fail = true;
+    await state().setLayerRole('OBRYS', 'outer');
+    expect(state().importReports).toEqual([
+      expect.objectContaining({
+        fileName: 'deska.dxf',
+        errors: ['Nové načtení výkresu selhalo: worker spadl'],
+      }),
+    ]);
+    expect(state().parts).toHaveLength(1);
+  });
+
+  it('hladiny: změna role během importu – import nepřepíše nové načtení a dávku načte s novou rolí', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    const plate = (x: number) =>
+      enc(
+        dxf({
+          entities: [
+            rectPoly(x, 0, 200, 100, [8, 'OBRYS']),
+            line(x + 10, 50, x + 60, 50, [8, 'GRAVIR']),
+          ],
+        }),
+      );
+    await state().importFiles([{ name: 'a.dxf', data: plate(0) }]);
+    // Pomalý import druhého výkresu; mezitím uživatel změní roli hladiny.
+    let release: () => void = () => {};
+    let slow = true;
+    setNestingClient({
+      ...syncClient,
+      importDrawing: (name, d, opts) =>
+        name === 'b.dxf' && slow
+          ? new Promise((resolve) => {
+              slow = false;
+              release = () => resolve(createNestingService().importDrawing(name, d, opts));
+            })
+          : syncClient.importDrawing(name, d, opts),
+    });
+    const importing = state().importFiles([{ name: 'b.dxf', data: plate(500) }]);
+    await state().setLayerRole('GRAVIR', 'attach');
+    expect(state().parts).toHaveLength(1);
+    expect(state().parts[0]!.shape!.marks).toHaveLength(1);
+    release();
+    await importing;
+    expect(state().parts).toHaveLength(2);
+    expect(state().drawings).toHaveLength(2);
+    expect(state().parts.map((p) => p.shape!.marks?.length)).toEqual([1, 1]);
   });
 
   it('import DXF: díly se přidají, režim více dílů, dávka CSV + DXF, hlášení po souborech', async () => {

@@ -156,13 +156,23 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       „Všechny tabule"; přehled ukáže všechny tabule (nebo skupiny shodných
       tabulí) se skutečnými tvary dílů, kliknutí tabuli otevře samostatně.
       Hotovo: E2E přepnutí → všechny tabule s díly → otevření tabule.
+- [x] 8.4 Hladiny výkresu: po načtení DXF/DWG seznam hladin s rolí „vnější
+      obrys" (výchozí, otvory podle vnoření), „vnitřní obrys" (jen otvory),
+      „přidej k dílu" (geometrie jede s dílem, skládání ji nebere v úvahu),
+      „ignoruj". Role platí pro všechny výkresy a pamatují se podle názvu
+      hladiny; po změně role se výkresy načtou znovu bez nového nahrání
+      a ruční úpravy dílů zůstanou. Export DXF zapíše geometrii dílů pod
+      původními názvy hladin.
+      Hotovo: jednotkové testy rolí, přiřazení přidané geometrie, sloučení
+      po novém načtení a vrstev exportu; E2E výkres s hladinami → změna rolí
+      → plán → export DXF s původními hladinami → role po obnovení stránky.
 
 ---
 
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: feat: přehled všech tabulí v náhledu plánu (krok 8.3)
+Poslední commit: feat: role hladin při importu DXF/DWG a původní hladiny v exportu (krok 8.4)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -544,3 +554,47 @@ BLOKOVÁNO: ne
   Kreslení tabule je společné pro náhled i přehled (`SheetDrawing`); vzor
   šrafování zón má jedinečné ID (`useId`), proto už není v CSS. Volba
   zobrazení je ve store (`planView`, `openSheet`) a neukládá se do projektu.
+- 8.4: Na přání uživatele (upřesnil: export pod původními názvy hladin,
+  „přidej k dílu" bez vlivu na skládání, role společné pro všechny výkresy,
+  výchozí role vnější obrys, role se pamatují). `core/import/layers.ts`
+  (role, `layerRolesFromJson`), `PartShape.layers` (hladina obrysu a otvorů)
+  a `PartShape.marks` (přidaná geometrie po hladinách, úsečky a oblouky).
+  Kontura nese hladinu většiny svých segmentů. Kontura z hladiny „vnitřní
+  obrys" se sudou hloubkou se vynechá (její potomci se vnoří o úroveň výš);
+  zasahuje-li do materiálu dílu, díl se vyřadí s chybou. Přidaná geometrie
+  patří nejhlouběji vnořenému dílu, v jehož obrysu leží celá (konce, střed,
+  bez křížení hranice); v otvoru ležet smí. Díly se stejným textem se sloučí,
+  jen mají-li i stejné hladiny otvorů a stejnou přidanou geometrii na stejném
+  místě. Texty na hladině „ignoruj" díly nepojmenují; starý filtr `layer`
+  na texty dál nepůsobí. Výkresy zůstávají v paměti (`LoadedDrawing`, neukládají
+  se do projektu); po změně role se znovu načtou ve workeru a díly se
+  spárují podle polohy ve výkresu (obalový obdélník, `origins`), ne podle
+  názvu – názvy `soubor-N` se při změně rolí posouvají. Ruční úpravy se
+  poznají porovnáním s posledním importem; odebraný díl se nevrátí, díl,
+  který zmizel kvůli roli, se vrátí i s úpravami. Role se ukládají do
+  IndexedDB (Dexie verze 2, tabulka `settings`) hned, bez prodlevy
+  automatického ukládání – E2E odhalil, že při obnovení stránky do 400 ms
+  od změny se role ztratily. Klíč polohy dílu obsahuje obalové obdélníky
+  všech sloučených kopií a páruje se s tolerancí uzavřené mezery
+  (GAP_TOL + JOIN_TOL); rozdělí-li se sloučený díl, úpravy dostanou obě
+  části. Import souboru během nového načtení přidává k aktuálnímu stavu
+  a při změně rolí během importu načte dávku znovu. Export: názvy hladin
+  převedené na platné názvy R12, přípony `_2` při splynutí nebo shodě
+  s vrstvou exportu; hladiny 0, DILY a OTVORY se převádí podle role (obrys →
+  DILY, otvor → OTVORY, přidaná geometrie → 0), takže prostý výkres na
+  hladině 0 i díly z dřívějšího exportu mají obrysy a otvory oddělené jako
+  dřív. Přiřazení se počítá ze všech dílů – stejné ve všech souborech ZIP;
+  v tabulce LAYER jsou jen vrstvy použité na tabuli. Barvy převzatých
+  vrstev: obrys 7, otvor 1, přidaná geometrie 2. Změna chování: díly
+  z DXF s pojmenovanými hladinami už nejsou na DILY/OTVORY (upraven E2E
+  `dxf.spec.ts`). Revize subagentem revize-geometrie ve dvou kolech našla
+  12 + 7 problémů (mj. přenos úprav na jiný díl při párování podle názvu,
+  slučování dílů s jinou přidanou geometrií, souběh nového načtení s načtením
+  projektu i s importem, nestejné názvy vrstev mezi tabulemi, gravír přes
+  zářez tvaru U, hladina 0 exportovaná jako `0_2`); opraveny s regresními
+  testy. Známá omezení: texty z hladin „přidej k dílu" se nepřenášejí;
+  kopie dílu z výkresu (+ Přidat díl) se po změně rolí nenačte znovu. Párování
+  polohy (`originsMatch`) je v lehkém `layers.ts` – import z `dxf-parts.ts`
+  vtáhl do hlavního balíku čtení DXF s Clipperem (529 kB, varování buildu).
+  Kontrola: lint, typecheck, 584 testů, 27 e2e, build bez varování (hlavní
+  balík 426 kB).

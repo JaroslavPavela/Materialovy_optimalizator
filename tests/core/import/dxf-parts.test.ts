@@ -134,7 +134,7 @@ describe('partsFromDxf', () => {
     expect(r.errors).toEqual([]);
     expect(r.parts).toHaveLength(1);
     expect(partsFromDxf('o.dxf', text, { layer: () => false }).errors).toEqual([
-      'Ve vybraných vrstvách není žádná geometrie.',
+      'Ve vybraných hladinách není žádný obrys (vnější obrys).',
     ]);
   });
 

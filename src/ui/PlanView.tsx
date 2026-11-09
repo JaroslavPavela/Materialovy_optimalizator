@@ -115,6 +115,11 @@ function SheetDrawing({ sheet, layout, metrics, parts }: SheetSvgProps) {
             </title>
           </path>
         ))}
+        {placed.map(({ placed: p, marks }) =>
+          marks ? (
+            <path key={`${p.part.id}-${p.placement.instance}`} className="part-marks" d={marks} />
+          ) : null,
+        )}
       </g>
       {placed.map(({ placed: p }) => (
         <text

@@ -52,11 +52,13 @@ test('DXF → plán se skutečnými tvary → export DXF se stejnými díly', as
   await download.saveAs(path);
 
   // Export zpět importem: stejné díly (plochy včetně otvorů) jako vstup.
+  // Obrysy i otvory zůstaly na původní hladině vzorků (DIL), ne na DILY/OTVORY.
   const exported = partsFromDxf('plan.dxf', new Uint8Array(readFileSync(path)), {
     mode: 'multi',
-    layer: (l) => l === 'DILY' || l === 'OTVORY',
+    layer: (l) => l === 'DIL',
   });
   expect(exported.errors).toEqual([]);
+  expect(exported.layers.map((l) => l.name)).toEqual(['DIL', 'TABULE', 'ZBYTEK']);
   const net = (p: (typeof exported.parts)[number]) =>
     contourArea(p.shape!.outer) - p.shape!.holes.reduce((s, h) => s + contourArea(h), 0);
   const source = ['dil-s-otvory.dxf', 'spline.dxf'].map(

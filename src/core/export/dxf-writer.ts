@@ -3,7 +3,14 @@ import { bulgeToArc } from '../geometry/contour.ts';
 import { ANGLE_EPS, EPS } from '../geometry/eps.ts';
 import { pointsBBox } from '../geometry/polygon.ts';
 import type { Contour, Point, Rect } from '../geometry/types.ts';
-import type { NestingInput, NestingResult, Part, Sheet, SheetLayout } from '../model.ts';
+import type {
+  NestingInput,
+  NestingResult,
+  Part,
+  Sheet,
+  SheetLayout,
+  ShapeSegment,
+} from '../model.ts';
 import { labelSize, placedContours, placePart } from '../placed.ts';
 import { singleSheetGroups, type SheetGroup } from '../sheet-groups.ts';
 import { sheetFileName, type ExportFile } from './files.ts';
@@ -18,6 +25,78 @@ export const DXF_LAYERS = {
 } as const;
 
 export type DxfLayer = keyof typeof DXF_LAYERS;
+
+/** Barvy vrstev převzatých z výkresu podle role: obrys, otvor, přidaná geometrie. */
+const DRAWING_LAYER_COLORS = { outer: 7, hole: 1, mark: 2 } as const;
+
+/** Nejdelší název vrstvy v R12. */
+const MAX_LAYER_NAME = 31;
+
+/**
+ * Název hladiny výkresu jako vrstva R12: velká písmena bez diakritiky,
+ * znaky mimo A–Z, 0–9, $, -, _ jako „_", nejvýš 31 znaků. Prázdný název = „0".
+ */
+export function dxfLayerName(name: string): string {
+  const ascii = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9$_-]/g, '_')
+    .slice(0, MAX_LAYER_NAME);
+  return ascii || '0';
+}
+
+type LayerKind = keyof typeof DRAWING_LAYER_COLORS;
+
+/** Hladiny bez vlastního významu, které se v exportu převádí podle role. */
+const GENERIC_LAYERS = new Set(['0', 'DILY', 'OTVORY']);
+
+/**
+ * Přiřazení názvů vrstev hladinám výkresu. Počítá se ze všech dílů zadání
+ * (ne z jedné tabule), takže táž hladina má stejnou vrstvu ve všech souborech
+ * exportu. Různé hladiny, které by po převodu splynuly (např. „Díra" a „DIRA"),
+ * nebo hladina pojmenovaná jako vrstva exportu dostanou příponu _2, _3…
+ * Hladiny 0, DILY a OTVORY (prostý výkres, díly z dřívějšího exportu) se
+ * převádí podle role: vnější obrys na DILY, otvor na OTVORY, přidaná
+ * geometrie na 0 – CAM tak dostane obrysy a otvory oddělené jako u CSV.
+ */
+class LayerNames {
+  private readonly byName = new Map<string, string>();
+  private readonly taken = new Set<string>(['0', ...Object.keys(DXF_LAYERS)]);
+  readonly colors = new Map<string, number>();
+
+  constructor(parts: readonly Part[]) {
+    for (const p of parts) {
+      const shape = p.shape;
+      if (!shape?.layers) continue;
+      this.add(shape.layers.outer, 'outer');
+      for (const h of shape.layers.holes) this.add(h, 'hole');
+      for (const m of shape.marks ?? []) this.add(m.layer, 'mark');
+    }
+  }
+
+  private static generic(name: string, kind: LayerKind): string | null {
+    if (!GENERIC_LAYERS.has(dxfLayerName(name))) return null;
+    return kind === 'outer' ? 'DILY' : kind === 'hole' ? 'OTVORY' : '0';
+  }
+
+  private add(name: string, kind: LayerKind) {
+    if (LayerNames.generic(name, kind) !== null || this.byName.has(name)) return;
+    const base = dxfLayerName(name);
+    let out = base;
+    for (let k = 2; this.taken.has(out); k++) {
+      const suffix = `_${k}`;
+      out = base.slice(0, MAX_LAYER_NAME - suffix.length) + suffix;
+    }
+    this.taken.add(out);
+    this.byName.set(name, out);
+    this.colors.set(out, DRAWING_LAYER_COLORS[kind]);
+  }
+
+  get(name: string, kind: LayerKind): string {
+    return LayerNames.generic(name, kind) ?? this.byName.get(name) ?? dxfLayerName(name);
+  }
+}
 
 export interface DxfOptions {
   /**
@@ -104,7 +183,7 @@ class DxfBuilder {
       .pair(base + 20, 0);
   }
 
-  entity(type: string, layer: DxfLayer): this {
+  entity(type: string, layer: string): this {
     return this.pair(0, type).pair(8, layer);
   }
 
@@ -123,7 +202,27 @@ function asCircle(contour: Contour): { center: Point; radius: number } | null {
   return { center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, radius };
 }
 
-function writeContour(dxf: DxfBuilder, contour: Contour, layer: DxfLayer, opts: DxfOptions) {
+/** Jeden segment jako LINE, nebo ARC (téměř rovný oblouk jako LINE). */
+function writeSegment(dxf: DxfBuilder, s: ShapeSegment, layer: string) {
+  const { a, b, bulge } = s;
+  const sagitta = (Math.abs(bulge) * Math.hypot(b.x - a.x, b.y - a.y)) / 2;
+  const arc = sagitta < DXF_MIN_ARC_SAGITTA ? null : bulgeToArc(a, b, bulge);
+  if (!arc) {
+    if (pointsNear(a, b)) return;
+    dxf.entity('LINE', layer).point(a).point(b, 11);
+    return;
+  }
+  // ARC v DXF běží vždy CCW od počátečního ke koncovému úhlu.
+  const start = arc.sweep > 0 ? arc.startAngle : arc.startAngle + arc.sweep;
+  dxf
+    .entity('ARC', layer)
+    .point(arc.center)
+    .pair(40, arc.radius)
+    .pair(50, normDeg(start), ANGLE_DIGITS)
+    .pair(51, normDeg(start + Math.abs(arc.sweep)), ANGLE_DIGITS);
+}
+
+function writeContour(dxf: DxfBuilder, contour: Contour, layer: string, opts: DxfOptions) {
   const circle = asCircle(contour);
   if (circle) {
     dxf.entity('CIRCLE', layer).point(circle.center).pair(40, circle.radius);
@@ -131,22 +230,7 @@ function writeContour(dxf: DxfBuilder, contour: Contour, layer: DxfLayer, opts: 
   }
   if (opts.segments === 'lines-arcs') {
     contour.forEach((v, i) => {
-      const next = contour[(i + 1) % contour.length]!;
-      const sagitta = (Math.abs(v.bulge) * Math.hypot(next.x - v.x, next.y - v.y)) / 2;
-      const arc = sagitta < DXF_MIN_ARC_SAGITTA ? null : bulgeToArc(v, next, v.bulge);
-      if (!arc) {
-        if (pointsNear(v, next)) return;
-        dxf.entity('LINE', layer).point(v).point(next, 11);
-        return;
-      }
-      // ARC v DXF běží vždy CCW od počátečního ke koncovému úhlu.
-      const start = arc.sweep > 0 ? arc.startAngle : arc.startAngle + arc.sweep;
-      dxf
-        .entity('ARC', layer)
-        .point(arc.center)
-        .pair(40, arc.radius)
-        .pair(50, normDeg(start), ANGLE_DIGITS)
-        .pair(51, normDeg(start + Math.abs(arc.sweep)), ANGLE_DIGITS);
+      writeSegment(dxf, { a: v, b: contour[(i + 1) % contour.length]!, bulge: v.bulge }, layer);
     });
     return;
   }
@@ -172,8 +256,9 @@ function rectContour(r: Rect): Contour {
 
 /**
  * Jedna tabule jako DXF R12 (AC1009) ASCII v mm. Obrys tabule a zakázané zóny
- * na vrstvě TABULE, vnější obrysy dílů na DILY, otvory na OTVORY, názvy dílů
- * na POPISKY. Neznámé ID dílu v rozložení vyhodí `RangeError`.
+ * na vrstvě TABULE, názvy dílů na POPISKY. Obrysy, otvory a přidaná geometrie
+ * dílů z výkresu na vrstvách podle původních hladin (`dxfLayerName`), ostatní
+ * díly na DILY a OTVORY. Neznámé ID dílu v rozložení vyhodí `RangeError`.
  */
 export function writeSheetDxf(
   sheet: Sheet,
@@ -213,7 +298,21 @@ export function writeSheetDxf(
     .point({ x: ext.x + ext.width, y: ext.y + ext.height })
     .pair(0, 'ENDSEC');
 
-  const layers = Object.entries(DXF_LAYERS) as [DxfLayer, number][];
+  // Vrstvy z hladin výkresu; v tabulce jen ty, které tabule používá.
+  const names = new LayerNames(parts);
+  const partLayers = placed.map(({ contours: c }) => ({
+    outer: c.layers ? names.get(c.layers.outer, 'outer') : 'DILY',
+    holes: c.holes.map((_, k) => {
+      const layer = c.layers?.holes[k];
+      return layer === undefined ? 'OTVORY' : names.get(layer, 'hole');
+    }),
+    marks: (c.marks ?? []).map((m) => names.get(m.layer, 'mark')),
+  }));
+  const used = new Set(partLayers.flatMap((l) => [l.outer, ...l.holes, ...l.marks]));
+  const layers: [string, number][] = [
+    ...(Object.entries(DXF_LAYERS) as [DxfLayer, number][]),
+    ...[...names.colors].filter(([n]) => used.has(n)),
+  ];
   dxf
     .pair(0, 'SECTION')
     .pair(2, 'TABLES')
@@ -262,10 +361,14 @@ export function writeSheetDxf(
     );
   }
   if (opts.remnant) writeContour(dxf, rectContour(opts.remnant), 'ZBYTEK', opts);
-  for (const p of placed) {
-    writeContour(dxf, p.contours.outer, 'DILY', opts);
-    for (const h of p.contours.holes) writeContour(dxf, h, 'OTVORY', opts);
-  }
+  placed.forEach(({ contours: c }, i) => {
+    const layer = partLayers[i]!;
+    writeContour(dxf, c.outer, layer.outer, opts);
+    c.holes.forEach((h, k) => writeContour(dxf, h, layer.holes[k]!, opts));
+    (c.marks ?? []).forEach((m, k) => {
+      for (const s of m.segments) writeSegment(dxf, s, layer.marks[k]!);
+    });
+  });
   if (opts.labels !== false) {
     for (const { label } of placed) {
       const { labelAt } = label;

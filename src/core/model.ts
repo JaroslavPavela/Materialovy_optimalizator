@@ -1,5 +1,5 @@
 import { ANGLE_EPS, EPS } from './geometry/eps.ts';
-import type { Contour, Rect, Ring } from './geometry/types.ts';
+import type { Contour, Point, Rect, Ring } from './geometry/types.ts';
 
 /**
  * Povolená natočení dílu:
@@ -19,6 +19,34 @@ export interface PartShape {
   readonly outer: Contour;
   /** Otvory, CW. */
   readonly holes: readonly Contour[];
+  /**
+   * Hladiny z výkresu – export DXF zapíše obrysy pod nimi. Chybí-li, vnější
+   * obrys jde na vrstvu DILY a otvory na OTVORY.
+   */
+  readonly layers?: ShapeLayers;
+  /**
+   * Geometrie přidaná k dílu (gravírování, ohyby, značky) po hladinách. Jede
+   * s dílem do náhledu a exportu, skládání ji nebere v úvahu.
+   */
+  readonly marks?: readonly PartMarks[];
+}
+
+export interface ShapeLayers {
+  readonly outer: string;
+  /** Hladina každého otvoru, ve stejném pořadí jako `PartShape.holes`. */
+  readonly holes: readonly string[];
+}
+
+/** Úsečka (bulge 0) nebo oblouk mezi body `a` a `b`; bulge jako u `ContourVertex`. */
+export interface ShapeSegment {
+  readonly a: Point;
+  readonly b: Point;
+  readonly bulge: number;
+}
+
+export interface PartMarks {
+  readonly layer: string;
+  readonly segments: readonly ShapeSegment[];
 }
 
 /** Díl k vyrobení. */

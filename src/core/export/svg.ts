@@ -1,6 +1,13 @@
 import { bulgeToArc } from '../geometry/contour.ts';
 import type { Contour, Rect, Ring } from '../geometry/types.ts';
-import type { NestingInput, NestingResult, Part, Sheet, SheetLayout } from '../model.ts';
+import type {
+  NestingInput,
+  NestingResult,
+  Part,
+  ShapeSegment,
+  Sheet,
+  SheetLayout,
+} from '../model.ts';
 import { labelSize, placedContours, placePart, type PlacedPart } from '../placed.ts';
 import { singleSheetGroups, type SheetGroup } from '../sheet-groups.ts';
 import { sheetFileName, type ExportFile } from './files.ts';
@@ -62,6 +69,29 @@ export function contourPath(contour: Contour): string {
   return `${d}Z`;
 }
 
+/**
+ * SVG cesta otevřené geometrie (přidané k dílu): navazující segmenty v jednom
+ * tahu, jinak nový tah příkazem `M`.
+ */
+export function segmentsPath(segments: readonly ShapeSegment[]): string {
+  const f = svgNumber;
+  let d = '';
+  let last: { x: number; y: number } | null = null;
+  for (const { a, b, bulge } of segments) {
+    if (!last || Math.hypot(last.x - a.x, last.y - a.y) > 1e-9) d += `M${f(a.x)} ${f(a.y)}`;
+    const arc = bulgeToArc(a, b, bulge);
+    if (arc) {
+      const large = Math.abs(arc.sweep) > 180 ? 1 : 0;
+      const sweep = arc.sweep > 0 ? 1 : 0;
+      d += `A${f(arc.radius)} ${f(arc.radius)} 0 ${large} ${sweep} ${f(b.x)} ${f(b.y)}`;
+    } else {
+      d += `L${f(b.x)} ${f(b.y)}`;
+    }
+    last = b;
+  }
+  return d;
+}
+
 /** SVG cesta lomeného obrysu (např. zakázané zóny). */
 export function ringPath(ring: Ring): string {
   return contourPath(ring.map((p) => ({ x: p.x, y: p.y, bulge: 0 })));
@@ -91,6 +121,8 @@ export interface PlacedPartPath {
   readonly placed: PlacedPart;
   /** Vnější obrys a otvory v jedné cestě (vykreslit s fill-rule evenodd). */
   readonly path: string;
+  /** Geometrie přidaná k dílu (jen tah, bez výplně); prázdná, když žádná není. */
+  readonly marks: string;
 }
 
 /** Umístěné díly s cestami obrysů; neznámé ID dílu vyhodí `RangeError`. */
@@ -100,8 +132,12 @@ export function placedPartPaths(parts: readonly Part[], layout: SheetLayout): Pl
     const part = byId.get(placement.partId);
     if (!part) throw new RangeError(`Umístění odkazuje na neznámý díl „${placement.partId}".`);
     const placed: PlacedPart = placePart(part, placement);
-    const { outer, holes } = placedContours(part, placement);
-    return { placed, path: [outer, ...holes].map(contourPath).join('') };
+    const { outer, holes, marks } = placedContours(part, placement);
+    return {
+      placed,
+      path: [outer, ...holes].map(contourPath).join(''),
+      marks: segmentsPath((marks ?? []).flatMap((m) => m.segments)),
+    };
   });
 }
 
@@ -149,9 +185,10 @@ export function writeSheetSvg(
       `<rect x="${f(r.x)}" y="${f(r.y)}" width="${f(r.width)}" height="${f(r.height)}" fill="#dafbe1" fill-opacity="0.6" stroke="#1a7f37" stroke-dasharray="${f(stroke * 8)} ${f(stroke * 4)}"/>`,
     );
   }
-  for (const { placed, path } of items) {
+  for (const { placed, path, marks } of items) {
     const fill = colors.get(placed.part.id) ?? '#cccccc';
     out.push(`<path d="${path}" fill="${fill}" fill-rule="evenodd" stroke="#24292f"/>`);
+    if (marks) out.push(`<path d="${marks}" fill="none" stroke="#0550ae"/>`);
   }
   out.push('</g>');
   if (opts.labels !== false) {

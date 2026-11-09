@@ -14,6 +14,8 @@ export interface SegmentLike {
   readonly a: Point;
   readonly b: Point;
   readonly bulge: number;
+  /** Hladina výkresu; chybí-li, „0". */
+  readonly layer?: string;
 }
 
 export interface ContourOptions {
@@ -21,6 +23,11 @@ export interface ContourOptions {
   readonly joinTol?: number;
   /** Mezery do této velikosti (mm) se uzavřou automaticky s varováním. */
   readonly gapTol?: number;
+  /**
+   * Hladiny, jejichž kontury smí být jen otvory (role „vnitřní obrys").
+   * Taková kontura mimo materiál dílu se ignoruje s varováním.
+   */
+  readonly holeLayer?: (layer: string) => boolean;
 }
 
 export const JOIN_TOL = 0.01;
@@ -34,10 +41,18 @@ export interface ShapeRegion {
   readonly outer: Contour;
   readonly holes: readonly Contour[];
   readonly depth: number;
+  /** Hladina vnějšího obrysu (u kontury z více hladin ta s nejvíc segmenty). */
+  readonly outerLayer: string;
+  /** Hladiny otvorů ve stejném pořadí jako `holes`. */
+  readonly holeLayers: readonly string[];
 }
 
 export interface ContourBuildResult {
   readonly regions: readonly ShapeRegion[];
+  /** Kontury z hladin „vnitřní obrys", které neležely v materiálu žádného dílu. */
+  readonly ignoredHoles: number;
+  /** Vnějších obrysů před vyřazením chybných dílů. */
+  readonly outlines: number;
   readonly warnings: readonly string[];
   /** Neuzavřené, větvené nebo protínající se kontury – díl z nich nevznikne. */
   readonly errors: readonly string[];
@@ -69,9 +84,10 @@ function splitLargeArc(s: SegmentLike, maxChord: number): SegmentLike[] {
   if (Math.abs(s.bulge) <= 1 || dist(s.a, s.b) > maxChord) return [s];
   const m = segmentMidpoint(s.a, s.b, s.bulge);
   const half = Math.tan(Math.atan(s.bulge) / 2);
+  const layer = s.layer ?? '0';
   return [
-    { a: s.a, b: m, bulge: half },
-    { a: m, b: s.b, bulge: half },
+    { a: s.a, b: m, bulge: half, layer },
+    { a: m, b: s.b, bulge: half, layer },
   ];
 }
 
@@ -115,13 +131,26 @@ interface Edge {
   readonly from: number;
   readonly to: number;
   readonly bulge: number;
+  readonly layer: string;
 }
 
 /** Hrana orientovaná ve směru průchodu. */
 type Step = Edge;
 
 function orient(e: Edge, from: number): Step {
-  return from === e.from ? e : { from: e.to, to: e.from, bulge: -e.bulge };
+  return from === e.from ? e : { from: e.to, to: e.from, bulge: -e.bulge, layer: e.layer };
+}
+
+/** Hladina kontury: ta, ze které je nejvíc segmentů (při shodě dřívější). */
+function majorityLayer(steps: readonly Step[]): string {
+  const count = new Map<string, number>();
+  let best = steps[0]?.layer ?? '0';
+  for (const s of steps) {
+    const n = (count.get(s.layer) ?? 0) + 1;
+    count.set(s.layer, n);
+    if (n > count.get(best)!) best = s.layer;
+  }
+  return best;
 }
 
 /**
@@ -229,6 +258,7 @@ export function buildContours(
     from: node[2 * i]!,
     to: node[2 * i + 1]!,
     bulge: s.bulge,
+    layer: s.layer ?? '0',
   }));
   let { edges, duplicates } = dedupeEdges(rawEdges, pos, joinTol);
 
@@ -282,7 +312,7 @@ export function buildContours(
   report(warnings, gaps, (n) => `Automaticky uzavřeno dalších ${n} mezer.`);
   if (gaps.length > 0) {
     const again = dedupeEdges(
-      edges.map((e) => ({ from: target[e.from]!, to: target[e.to]!, bulge: e.bulge })),
+      edges.map((e) => ({ ...e, from: target[e.from]!, to: target[e.to]! })),
       pos,
       joinTol,
     );
@@ -400,7 +430,7 @@ export function buildContours(
       degenerate++;
       continue;
     }
-    contours.push({ c, area: signed, ring, bbox: contourBBox(c) });
+    contours.push({ c, area: signed, ring, bbox: contourBBox(c), layer: majorityLayer(steps) });
   }
   if (degenerate > 0) warnings.push(`Přeskočeno kontur s nulovou plochou: ${degenerate}.`);
 
@@ -428,13 +458,23 @@ export function buildContours(
       }
     }
   }
+  // Kontura z hladiny „vnitřní obrys" musí být otvor (lichá hloubka); jinak
+  // se vynechá a její potomci se vnoří o úroveň výš. Rodiče předcházejí
+  // potomkům (řazení podle plochy), takže stačí jeden průchod.
+  const holeLayer = opts.holeLayer;
+  const dropped = new Uint8Array(contours.length);
   const depth: number[] = [];
-  contours.forEach((_, i) => {
-    depth[i] = parent[i]! < 0 ? 0 : depth[parent[i]!]! + 1;
+  contours.forEach((k, i) => {
+    let p = parent[i]!;
+    while (p >= 0 && dropped[p]) p = parent[p]!;
+    parent[i] = p;
+    depth[i] = p < 0 ? 0 : depth[p]! + 1;
+    if (holeLayer?.(k.layer) && depth[i]! % 2 === 0) dropped[i] = 1;
   });
   const regionOf = new Map<number, Draft>();
   const drafts: Draft[] = [];
   contours.forEach((k, i) => {
+    if (dropped[i]) return;
     if (depth[i]! % 2 === 0) {
       const r: Draft = { outer: k, holes: [], depth: depth[i]!, broken: null };
       regionOf.set(i, r);
@@ -467,6 +507,35 @@ export function buildContours(
         d.broken ??= `otvory u bodu ${at(a.c[0]!)} se překrývají`;
     });
   }
+  // Vynechaný vnitřní obrys, který zasahuje do materiálu dílu (kříží jeho
+  // obrys), je chybně nakreslený otvor – díl se vyřadí, aby nevznikl bez něj.
+  const orphanHoles: string[] = [];
+  contours.forEach((k, i) => {
+    if (!dropped[i]) return;
+    const ring = { outer: k.ring, holes: [] };
+    // Levně: díl, jehož vrcholy leží zřetelně uvnitř kontury a do jehož
+    // obalového obdélníku nezasahuje žádný vrchol kontury (rámeček výkresu
+    // kolem dílů), hranici nekříží.
+    const surely = (d: Draft) =>
+      bboxInside(d.outer.bbox, k.bbox, 0) &&
+      d.outer.ring.every((p) => pointInRing(p, k.ring) && pointRingDistance(p, k.ring) > joinTol) &&
+      !k.ring.some((p) => bboxInside({ ...p, width: 0, height: 0 }, d.outer.bbox, joinTol));
+    const hit = drafts.find((d) => {
+      if (!bboxesOverlap(d.outer.bbox, k.bbox) || surely(d)) return false;
+      const tol = areaTol(k.ring) + areaTol(d.outer.ring);
+      // Díl celý uvnitř kontury (např. rámeček kolem dílu) hranici nekříží.
+      const whole = polygonsArea(intersectPolygons([{ outer: d.outer.ring, holes: [] }], [ring]));
+      if (whole >= d.outer.area - tol) return false;
+      return polygonsArea(intersectPolygons([materialNear(d, k.bbox)], [ring])) > tol;
+    });
+    if (hit) hit.broken ??= `otvor u bodu ${at(k.c[0]!)} přesahuje vnější obrys`;
+    else {
+      orphanHoles.push(
+        `Kontura u bodu ${at(k.c[0]!)} na hladině „${k.layer}" (vnitřní obrys) neleží v materiálu žádného dílu – ignorována.`,
+      );
+    }
+  });
+  report(warnings, orphanHoles, (n) => `Dalších ignorovaných vnitřních obrysů: ${n}.`);
   const duplicateOutlines = new Set<Draft>();
   forOverlappingPairs(
     drafts.map((d) => ({ ...d.outer, d })),
@@ -521,8 +590,16 @@ export function buildContours(
       outer: orientContour(d.outer.c, 'ccw'),
       holes: d.holes.map((h) => orientContour(h.c, 'cw')),
       depth: d.depth,
+      outerLayer: d.outer.layer,
+      holeLayers: d.holes.map((h) => h.layer),
     }));
-  return { regions, warnings, errors };
+  return {
+    regions,
+    ignoredHoles: dropped.reduce((n, v) => n + v, 0),
+    outlines: drafts.length,
+    warnings,
+    errors,
+  };
 }
 
 /** Uzavřená kontura s aproximací pro výpočty. */
@@ -531,6 +608,7 @@ interface Shape {
   readonly area: number;
   readonly ring: Ring;
   readonly bbox: Rect;
+  readonly layer: string;
 }
 
 /** Rozpracovaná oblast; `broken` = důvod vyřazení. */

@@ -1,4 +1,5 @@
 import { Dexie, type EntityTable } from 'dexie';
+import type { LayerRoles } from '../core/import/layers.ts';
 import type { Sheet } from '../core/model.ts';
 import type { ProjectFile } from '../core/project.ts';
 
@@ -12,6 +13,14 @@ export interface ProjectStorage {
   saveLastProject(file: ProjectFile): Promise<void>;
   loadSheetLibrary(): Promise<unknown[]>;
   saveSheetLibrary(sheets: readonly Sheet[]): Promise<void>;
+  /** Role hladin jako seznam dvojic [hladina, role] (ověří `layerRolesFromJson`). */
+  loadLayerRoles(): Promise<unknown>;
+  saveLayerRoles(roles: LayerRoles): Promise<void>;
+}
+
+interface SettingRow {
+  readonly id: string;
+  readonly value: unknown;
 }
 
 interface ProjectRow {
@@ -27,14 +36,17 @@ interface SheetFormatRow {
 }
 
 const LAST_PROJECT = 'posledni';
+const LAYER_ROLES = 'role-hladin';
 
 class AppDb extends Dexie {
   projects!: EntityTable<ProjectRow, 'id'>;
   sheetFormats!: EntityTable<SheetFormatRow, 'id'>;
+  settings!: EntityTable<SettingRow, 'id'>;
 
   constructor() {
     super('materialovy-optimalizator');
     this.version(1).stores({ projects: 'id', sheetFormats: 'id, order' });
+    this.version(2).stores({ settings: 'id' });
   }
 }
 
@@ -59,6 +71,12 @@ export function createDexieStorage(): ProjectStorage {
           sheets.map((sheet, order) => ({ id: sheet.id, order, sheet })),
         );
       });
+    },
+    async loadLayerRoles() {
+      return (await db.settings.get(LAYER_ROLES))?.value ?? null;
+    },
+    async saveLayerRoles(roles) {
+      await db.settings.put({ id: LAYER_ROLES, value: [...roles] });
     },
   };
 }

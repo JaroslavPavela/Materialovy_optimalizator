@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { parsePartsCsv } from '../core/import/csv.ts';
-import type { DxfPartMode } from '../core/import/dxf-parts.ts';
+import type { DxfPartMode, DxfPartsResult } from '../core/import/dxf-parts.ts';
+import type { LayerRole, LayerRoles } from '../core/import/layers.ts';
 import {
   DEFAULT_NESTING_PARAMS,
   type ForbiddenZone,
@@ -15,6 +16,7 @@ import type { NestOutcome, NestProgress } from '../core/nesting/nest.ts';
 import { parseProject, type Project } from '../core/project.ts';
 import { remnantSheets } from '../core/remnants.ts';
 import { createNestingClient, NestingAbortedError, type NestingClient } from '../worker/client.ts';
+import { drawingInUse, mergeReimport, type ImportedPart, type LoadedDrawing } from './drawings.ts';
 
 /** Výsledek načtení jednoho souboru s díly (CSV, DXF nebo DWG). */
 export interface ImportReport {
@@ -48,6 +50,10 @@ export interface AppState {
   readonly importReports: readonly ImportReport[];
   /** Režim importu DXF/DWG: 1 soubor = 1 díl, nebo každý vnější obrys = díl. */
   readonly dxfMode: DxfPartMode;
+  /** Výkresy, ze kterých jsou díly v zadání – pro nové načtení po změně rolí hladin. */
+  readonly drawings: readonly LoadedDrawing[];
+  /** Role hladin podle názvu (pamatují se); chybějící hladina = vnější obrys. */
+  readonly layerRoles: LayerRoles;
   readonly projectReport: ProjectReport | null;
   /** Uložené formáty tabulí – sdílené mezi projekty. */
   readonly sheetLibrary: readonly Sheet[];
@@ -82,6 +88,10 @@ export interface AppActions {
   importFiles(files: readonly ImportFile[]): Promise<void>;
   importCsv(fileName: string, data: ArrayBuffer): Promise<void>;
   setDxfMode(mode: DxfPartMode): void;
+  /** Nastaví roli hladiny a znovu načte díly ze všech výkresů v zadání. */
+  setLayerRole(layer: string, role: LayerRole): Promise<void>;
+  /** Role hladin z úložiště (bez nového načtení výkresů). */
+  setLayerRoles(roles: LayerRoles): void;
   /** Nahradí zadání projektem (z úložiště nebo souboru); běžící výpočet zruší. */
   loadProject(project: Project): void;
   /** Načte projekt z textu JSON; při chybě zadání nezmění. */
@@ -171,6 +181,8 @@ const initialState: AppState = {
   params: DEFAULT_NESTING_PARAMS,
   importReports: [],
   dxfMode: 'single',
+  drawings: [],
+  layerRoles: new Map(),
   projectReport: null,
   sheetLibrary: [],
   status: 'idle',
@@ -188,6 +200,7 @@ const initialState: AppState = {
 /** Stav, který se při načtení jiného projektu vrátí na začátek. */
 const projectReset = {
   importReports: [],
+  drawings: [],
   projectReport: null,
   status: 'idle',
   progress: null,
@@ -208,6 +221,23 @@ export function setNestingClient(c: NestingClient | null): void {
 }
 const getClient = () => (client ??= createNestingClient());
 
+/** Pořadí nového načtení výkresů – starší, pomalejší načtení se zahodí. */
+let reimportRun = 0;
+
+/** Díly z výsledku importu spolu s polohou ve výkresu. */
+const importedParts = (r: DxfPartsResult): ImportedPart[] =>
+  r.parts.map((part, i) => ({ part, origin: r.origins[i] ?? part.id }));
+
+function drawingReport(fileName: string, kind: 'dxf' | 'dwg', r: DxfPartsResult): ImportReport {
+  return {
+    fileName,
+    kind,
+    partCount: r.parts.length,
+    errors: r.errors,
+    warnings: r.warnings,
+  };
+}
+
 /** Zakázaná zóna jako obdélník (x, y, šířka, výška) v souřadnicích tabule. */
 export function rectZone(id: string, x: number, y: number, w: number, h: number): ForbiddenZone {
   return {
@@ -219,6 +249,67 @@ export function rectZone(id: string, x: number, y: number, w: number, h: number)
       { x, y: y + h },
     ],
   };
+}
+
+/**
+ * Znovu načte výkresy v zadání s rolemi hladin `roles` a sloučí je s aktuálním
+ * seznamem dílů (`mergeReimport`). Starší, pomalejší načtení se zahodí.
+ */
+async function reimportDrawings(
+  get: () => AppState,
+  set: (partial: Partial<AppState>) => void,
+  roles: LayerRoles,
+): Promise<void> {
+  const run = ++reimportRun;
+  const targets = get().drawings.filter((d) => drawingInUse(d, get().parts));
+  const results: DxfPartsResult[] = [];
+  try {
+    for (const d of targets) {
+      results.push(
+        await getClient().importDrawing(d.fileName, d.data, {
+          mode: d.mode,
+          idPrefix: newId(d.kind),
+          layerRoles: roles,
+        }),
+      );
+    }
+  } catch (e) {
+    if (run !== reimportRun) return;
+    const message = e instanceof Error ? e.message : String(e);
+    set({
+      importReports: targets.map((d) => ({
+        fileName: d.fileName,
+        kind: d.kind,
+        partCount: 0,
+        errors: [`Nové načtení výkresu selhalo: ${message}`],
+        warnings: [],
+      })),
+    });
+    return;
+  }
+  if (run !== reimportRun) return;
+  // Mezitím se mohly změnit díly i výkresy (načten projekt, smazány díly,
+  // přidán výkres): sloučit s aktuálním stavem a jen výkresy, které v něm
+  // ještě jsou.
+  const current = get().drawings;
+  let parts = get().parts;
+  const updated = new Map<LoadedDrawing, LoadedDrawing>();
+  const reports: ImportReport[] = [];
+  targets.forEach((d, i) => {
+    if (!current.includes(d)) return;
+    const r = results[i]!;
+    const merged = mergeReimport(parts, d, importedParts(r));
+    parts = merged.parts;
+    updated.set(d, { ...d, layers: r.layers, imported: merged.imported, memory: merged.memory });
+    reports.push(drawingReport(d.fileName, d.kind, r));
+  });
+  set({
+    parts,
+    drawings: current
+      .filter((d) => updated.has(d) || drawingInUse(d, parts))
+      .map((d) => updated.get(d) ?? d),
+    importReports: reports,
+  });
 }
 
 export const useAppStore = create<AppState & AppActions>()((set, get) => ({
@@ -302,28 +393,42 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   async importFiles(files) {
-    let parts = get().parts;
-    let replaced = false;
+    // Všechny soubory dávky se stejnými rolemi hladin.
+    const roles = get().layerRoles;
+    /** Díly z prvního CSV dávky – nahradí seznam dílů. */
+    let replacement: Part[] | null = null;
+    const addedParts: Part[] = [];
+    let addedDrawings: LoadedDrawing[] = [];
     const reports: ImportReport[] = [];
     for (const f of files) {
       const drawing = /\.(dxf|dwg)$/i.exec(f.name)?.[1]?.toLowerCase() as 'dxf' | 'dwg' | undefined;
       if (drawing) {
+        const mode = get().dxfMode;
         const r = await getClient().importDrawing(f.name, f.data, {
-          mode: get().dxfMode,
+          mode,
           idPrefix: newId(drawing),
+          layerRoles: roles,
         });
-        parts = [...parts, ...r.parts];
-        reports.push({
+        addedParts.push(...r.parts);
+        addedDrawings.push({
           fileName: f.name,
+          data: f.data,
           kind: drawing,
-          partCount: r.parts.length,
-          errors: r.errors,
-          warnings: r.warnings,
+          mode,
+          layers: r.layers,
+          imported: importedParts(r),
+          memory: new Map(),
         });
+        reports.push(drawingReport(f.name, drawing, r));
       } else {
         const r = parsePartsCsv(f.data, { idPrefix: newId('csv') });
-        parts = replaced ? [...parts, ...r.parts] : r.parts;
-        replaced = true;
+        if (replacement === null) {
+          replacement = r.parts;
+          addedParts.length = 0;
+          addedDrawings = [];
+        } else {
+          addedParts.push(...r.parts);
+        }
         const withRow = (i: { row: number; message: string }) => `Řádek ${i.row}: ${i.message}`;
         reports.push({
           fileName: f.name,
@@ -334,7 +439,31 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
         });
       }
     }
-    set({ parts, importReports: reports });
+    // Během importu se mohlo cokoli změnit (nové načtení po změně role):
+    // přidat k aktuálnímu stavu, ne k tomu před importem.
+    const replace = replacement;
+    set((s) =>
+      replace
+        ? { parts: [...replace, ...addedParts], drawings: addedDrawings, importReports: reports }
+        : {
+            parts: [...s.parts, ...addedParts],
+            drawings: [...s.drawings, ...addedDrawings],
+            importReports: reports,
+          },
+    );
+    // Role se během importu změnily – výkresy dávky mají staré: načíst znovu.
+    if (get().layerRoles !== roles) await reimportDrawings(get, set, get().layerRoles);
+  },
+
+  async setLayerRole(layer, role) {
+    const roles = new Map(get().layerRoles);
+    roles.set(layer, role);
+    set({ layerRoles: roles });
+    await reimportDrawings(get, set, roles);
+  },
+
+  setLayerRoles(roles) {
+    set({ layerRoles: roles });
   },
 
   importCsv(fileName, data) {
@@ -382,7 +511,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   clearParts() {
-    set({ parts: [], importReports: [] });
+    set({ parts: [], importReports: [], drawings: [] });
   },
 
   addSheet() {

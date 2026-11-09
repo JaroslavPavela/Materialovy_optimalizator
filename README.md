@@ -126,6 +126,25 @@ Neuzavřené kontury, větvení (čára přes obrys, ohyb ve stejné vrstvě),
 samoprůniky a překrývající se obrysy se hlásí srozumitelnou chybou s místem
 ve výkresu; díl, kterého se chyba týká, se nepoužije.
 
+### Hladiny výkresu
+
+Po načtení DXF nebo DWG se v panelu importu zobrazí hladiny s geometrií
+a u každé jde zvolit, jak se použije:
+
+| Role          | Význam                                                                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| vnější obrys  | výchozí – obrysy dílů; kontura uvnitř jiné je otvor (jako výše)                                                                                             |
+| vnitřní obrys | kontury jsou jen otvory; kontura mimo materiál dílu se ignoruje s varováním, kontura přesahující obrys díl vyřadí                                           |
+| přidej k dílu | geometrie (gravírování, ohyby, značky) jede s dílem do náhledu a exportu, skládání ji nebere v úvahu; co neleží celé v obrysu dílu, se ignoruje s varováním |
+| ignoruj       | hladina se nepoužije (ani její texty pro názvy dílů)                                                                                                        |
+
+Po změně role se díly ze všech načtených výkresů hned načtou znovu – bez
+nového nahrání souboru. Ruční úpravy dílů (název, počet, natočení, materiál,
+tloušťka) zůstanou; díly se párují podle polohy ve výkresu. Díl, který
+uživatel odebral, se nevrátí. Volba se pamatuje podle názvu hladiny
+a použije se i pro další výkresy. Výkresy samotné se do projektu neukládají –
+po obnovení stránky je pro změnu rolí potřeba výkres nahrát znovu.
+
 ## Podporované DWG
 
 Čtou se DWG z AutoCADu R14 až 2018 a novějších, které ukládají ve formátu
@@ -140,9 +159,17 @@ souboru DWG.
 ## Export DXF
 
 DXF R12 (AC1009) ASCII v mm – přečte ho prakticky každý CAM. Vrstvy
-`TABULE` (obrys tabule a zakázané zóny), `DILY` (vnější obrysy), `OTVORY`,
-`POPISKY` (názvy dílů) a `ZBYTEK` (obdélník využitelného zbytku tabule). Obrysy jako uzavřené POLYLINE s oblouky (bulge),
-plné kruhy jako CIRCLE. Jeden soubor na tabuli, všechny tabule v ZIP.
+`TABULE` (obrys tabule a zakázané zóny), `POPISKY` (názvy dílů) a `ZBYTEK`
+(obdélník využitelného zbytku tabule). Díly z DXF a DWG mají obrysy, otvory
+i přidanou geometrii na vrstvách podle původních hladin výkresu – název je
+převedený na platný název R12 (velká písmena bez diakritiky, znaky mimo
+A–Z, 0–9, `$ - _` jako `_`, nejvýš 31 znaků; `Gravír` → `GRAVIR`). Hladiny,
+které by po převodu splynuly nebo se jmenují jako vrstvy exportu, dostanou
+příponu `_2`, `_3`…; táž hladina má stejný název ve všech souborech exportu.
+Díly z CSV a díly z hladin `0`, `DILY` nebo `OTVORY` jsou na vrstvách `DILY`
+(vnější obrysy) a `OTVORY` (otvory); přidaná geometrie z hladiny 0 na `0`. Obrysy jako
+uzavřené POLYLINE s oblouky (bulge), plné kruhy jako CIRCLE, přidaná
+geometrie jako LINE a ARC. Jeden soubor na tabuli, všechny tabule v ZIP.
 G-kód ani pořadí řezů se negenerují – to je úloha CAM.
 
 ## Omezení
@@ -159,6 +186,9 @@ G-kód ani pořadí řezů se negenerují – to je úloha CAM.
   chybný (větvení) – je potřeba ho v CADu vyčistit.
 - Normála entit musí mířit v ose Z (±Z); entity v natočené rovině se
   přeskočí.
+- K dílu se z hladin „přidej k dílu" přenáší jen geometrie (čáry, oblouky,
+  křivky), ne texty. Kopie dílu z výkresu přidaná tlačítkem „+ Přidat díl"
+  se po změně rolí hladin nenačte znovu – ponechá si původní tvar.
 - DWG čte knihovna třetí strany (reverzní inženýrství formátu). Některé
   objekty výkresu se přečíst nemusí – aplikace na to upozorní. Když díl
   z DWG chybí nebo nesedí, uložte výkres v CADu jako DXF.

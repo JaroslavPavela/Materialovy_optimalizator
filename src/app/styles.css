@@ -274,6 +274,33 @@ table.parts input.num {
   width: 4rem;
 }
 
+.layer-roles {
+  border: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.layer-roles legend {
+  font-weight: 600;
+  padding: 0;
+}
+
+.layer-roles table {
+  border-collapse: collapse;
+  margin-top: 0.25rem;
+}
+
+.layer-roles th,
+.layer-roles td {
+  padding: 0.15rem 0.75rem 0.15rem 0;
+  text-align: left;
+}
+
+.layer-roles th.num,
+.layer-roles td.num {
+  text-align: right;
+}
+
 .sheet-card {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -483,6 +510,14 @@ svg .part {
   vector-effect: non-scaling-stroke;
 }
 
+svg .part-marks {
+  fill: none;
+  stroke: #0550ae;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
 svg .part:hover {
   stroke-width: 2px;
   filter: brightness(0.92);
@@ -686,7 +721,15 @@ svg .remnant-label {
   border-radius: 4px;
 }
 
-.sheet-card svg .part:hover {
+.sheet-card svg .part-marks {
+  fill: none;
+  stroke: #0550ae;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+svg .part:hover {
   stroke-width: 1px;
   filter: none;
 }
