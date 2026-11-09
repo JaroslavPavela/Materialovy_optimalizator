@@ -16,20 +16,16 @@ export function App() {
         <h1>Materiálový optimalizátor</h1>
         <p className="muted">Nářezové plány pro CNC.</p>
       </header>
-      <div className="layout">
-        <aside className="inputs">
-          <ProjectPanel />
-          <FileDrop />
-          <PartsTable />
-          <SheetSettings />
-          <CalculatePanel />
-        </aside>
-        <main className="results">
-          <ResultSummary />
-          <PlanView />
-          <ExportPanel />
-        </main>
-      </div>
+      <main className="layout">
+        <ProjectPanel />
+        <FileDrop />
+        <PartsTable />
+        <SheetSettings />
+        <CalculatePanel />
+        <ResultSummary />
+        <PlanView />
+        <ExportPanel />
+      </main>
       <footer className="app-footer">Vytvořil Jaroslav Pavela s Claude Code 2026</footer>
     </div>
   );

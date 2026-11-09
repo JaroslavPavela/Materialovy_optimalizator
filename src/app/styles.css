@@ -58,30 +58,11 @@ h2 {
 }
 
 .layout {
-  display: grid;
-  /* Vstupy aspoň na šířku tabulky dílů bez posuvníku, zbytek sdílí s náhledem. */
-  grid-template-columns: minmax(660px, 2fr) minmax(0, 3fr);
-  gap: 0.75rem;
-  align-items: start;
-}
-
-@media (max-width: 1100px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-.inputs,
-.results {
+  /* Jeden sloupec: zadání, výpočet a pod ním výsledek přes celou šířku. */
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   min-width: 0;
-}
-
-.results {
-  position: sticky;
-  top: 0.75rem;
 }
 
 .panel {
