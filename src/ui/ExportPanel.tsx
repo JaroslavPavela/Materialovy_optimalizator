@@ -133,8 +133,8 @@ export function ExportPanel() {
         </button>
       </div>
       <p className="muted hint">
-        DXF R12 v mm: vrstvy TABULE, DILY, OTVORY, POPISKY; oblouky zůstávají oblouky. PDF vytvoříte
-        tiskem do PDF.
+        DXF R12 v mm: vrstvy TABULE, POPISKY a díly na hladinách z výkresu (díly z CSV na DILY a
+        OTVORY); oblouky zůstávají oblouky. PDF vytvoříte tiskem do PDF.
         {repeated &&
           ' Stejné tabule se exportují jednou, počet opakování je v názvu souboru (např. -4x).'}
       </p>
