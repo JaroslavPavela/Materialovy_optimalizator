@@ -177,6 +177,31 @@ test('chybný CSV ukáže chyby s čísly řádků', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('přidání dílu zkopíruje poslední díl a zvýší číslo v názvu', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+
+  const add = page.getByRole('button', { name: '+ Přidat díl' });
+  await add.click();
+  await fillFields(page, {
+    'Název dílu 1': 'Bok 9',
+    'Šířka dílu 1': '720,5',
+    'Výška dílu 1': '560',
+    'Počet dílu 1': '3',
+    'Materiál dílu 1': 'DTD',
+  });
+  await page.getByLabel('Rotace dílu 1').selectOption('locked');
+  await add.click();
+
+  await expect(page.getByLabel('Název dílu 2')).toHaveValue('Bok 10');
+  await expect(page.getByLabel('Šířka dílu 2')).toHaveValue('720,5');
+  await expect(page.getByLabel('Výška dílu 2')).toHaveValue('560');
+  await expect(page.getByLabel('Počet dílu 2')).toHaveValue('3');
+  await expect(page.getByLabel('Materiál dílu 2')).toHaveValue('DTD');
+  await expect(page.getByLabel('Rotace dílu 2')).toHaveValue('locked');
+  expect(errors).toEqual([]);
+});
+
 test('hromadná úprava: všechny díly, rozsah přes Shift, odebrání vybraných', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/');

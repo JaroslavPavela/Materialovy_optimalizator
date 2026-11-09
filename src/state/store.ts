@@ -144,6 +144,17 @@ let counter = 0;
 const newId = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${(counter++).toString(36)}`;
 
+/**
+ * Název kopie dílu: číslo na konci názvu se zvýší o 1 a zachová počet číslic
+ * („Bok 9“ → „Bok 10“, „A007“ → „A008“). Bez čísla na konci zůstane název stejný.
+ */
+export function nextPartName(name: string): string {
+  const m = /^(.*?)(\d+)$/.exec(name);
+  if (!m) return name;
+  const digits = m[2]!;
+  return m[1]! + (BigInt(digits) + 1n).toString().padStart(digits.length, '0');
+}
+
 export const DEFAULT_SHEET: Sheet = {
   id: 'tabule-1',
   name: 'Tabule 3000 × 1500',
@@ -335,20 +346,21 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   addPart() {
-    const n = get().parts.length + 1;
-    set((s) => ({
-      parts: [
-        ...s.parts,
-        {
-          id: newId('dil'),
-          name: `Díl ${n}`,
-          width: 1750,
-          height: 550,
-          quantity: 5,
-          rotation: 'ortho',
-        },
-      ],
-    }));
+    set((s) => {
+      // Nový díl je kopie posledního (včetně tvaru z DXF) s dalším číslem v názvu.
+      const last = s.parts.at(-1);
+      const part: Part = last
+        ? { ...last, id: newId('dil'), name: nextPartName(last.name) }
+        : {
+            id: newId('dil'),
+            name: 'Díl 1',
+            width: 1750,
+            height: 550,
+            quantity: 5,
+            rotation: 'ortho',
+          };
+      return { parts: [...s.parts, part] };
+    });
   },
 
   updatePart(id, patch) {

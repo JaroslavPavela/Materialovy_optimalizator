@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_NESTING_PARAMS, type Sheet } from '../../src/core/model.ts';
 import { nest } from '../../src/core/nesting/nest.ts';
 import { serializeProject } from '../../src/core/project.ts';
-import { resetAppStore, setNestingClient, useAppStore } from '../../src/state/store.ts';
+import {
+  nextPartName,
+  resetAppStore,
+  setNestingClient,
+  useAppStore,
+} from '../../src/state/store.ts';
 import { circle, dxf, rectPoly } from '../core/import/dxf-builder.ts';
 import type { NestingClient } from '../../src/worker/client.ts';
 import { createNestingService } from '../../src/worker/service.ts';
@@ -81,6 +86,54 @@ describe('store', () => {
     state().updatePart(id, { material: undefined, thickness: undefined });
     expect(state().parts[0]).not.toHaveProperty('material');
     expect(state().parts[0]).not.toHaveProperty('thickness');
+  });
+
+  it('nový díl je kopie posledního s dalším číslem v názvu', () => {
+    state().addPart();
+    expect(state().parts[0]!.name).toBe('Díl 1');
+    const first = state().parts[0]!.id;
+    state().updatePart(first, {
+      name: 'Bok 9',
+      width: 720,
+      height: 560,
+      quantity: 3,
+      rotation: 'locked',
+      material: 'DTD',
+      thickness: 18,
+    });
+    state().addPart();
+    const [a, b] = state().parts;
+    expect(b).toEqual({ ...a, id: b!.id, name: 'Bok 10' });
+    expect(b!.id).not.toBe(a!.id);
+
+    // Úprava kopie nemění originál.
+    state().updatePart(b!.id, { width: 100 });
+    expect(state().parts[0]!.width).toBe(720);
+  });
+
+  it('kopie dílu z DXF převezme i tvar', async () => {
+    const drawing = new TextEncoder().encode(
+      dxf({ entities: [rectPoly(0, 0, 100, 50), circle(50, 25, 10)] }),
+    ).buffer as ArrayBuffer;
+    await state().importFiles([{ name: 'deska.dxf', data: drawing }]);
+    expect(state().parts[0]!.shape).toBeDefined();
+    state().addPart();
+    const [a, b] = state().parts;
+    expect(b!.shape).toEqual(a!.shape);
+    expect(b!.name).toBe(a!.name);
+  });
+
+  it.each([
+    ['Díl 1', 'Díl 2'],
+    ['Bok 9', 'Bok 10'],
+    ['A007', 'A008'],
+    ['X-099', 'X-100'],
+    ['Police', 'Police'],
+    ['12', '13'],
+    ['Díl 99999999999999999999', 'Díl 100000000000000000000'],
+    ['', ''],
+  ])('název kopie: %j → %j', (name, next) => {
+    expect(nextPartName(name)).toBe(next);
   });
 
   it('hromadná úprava a odebrání mění jen díly s danými ID', () => {
