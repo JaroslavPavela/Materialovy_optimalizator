@@ -22,9 +22,9 @@ export function App() {
           <FileDrop />
           <PartsTable />
           <SheetSettings />
+          <CalculatePanel />
         </aside>
         <main className="results">
-          <CalculatePanel />
           <ResultSummary />
           <PlanView />
           <ExportPanel />
