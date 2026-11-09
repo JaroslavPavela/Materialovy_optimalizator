@@ -3,6 +3,8 @@ import type { DxfPartMode } from '../core/import/dxf-parts.ts';
 import { layerRole, LAYER_ROLES, type LayerRole } from '../core/import/layers.ts';
 import { drawingInUse } from '../state/drawings.ts';
 import { useAppStore } from '../state/store.ts';
+import { ImportReportDialog } from './ImportReportDialog.tsx';
+import { reportSummary } from './labels.ts';
 
 const DXF_MODES: readonly { value: DxfPartMode; label: string }[] = [
   { value: 'single', label: '1 soubor = 1 díl' },
@@ -99,6 +101,8 @@ export function FileDrop() {
   const dxfMode = useAppStore((s) => s.dxfMode);
   const setDxfMode = useAppStore((s) => s.setDxfMode);
   const [over, setOver] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const drawingReports = reports.filter((r) => r.kind !== 'csv');
   const input = useRef<HTMLInputElement>(null);
 
   const load = async (list: FileList | null) => {
@@ -107,6 +111,9 @@ export function FileDrop() {
       [...list].map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })),
     );
     await importFiles(files);
+    // Výkres s chybami: hlášení hned v okně (znovu ho otevře tlačítko).
+    const reports = useAppStore.getState().importReports;
+    if (reports.some((r) => r.kind !== 'csv' && r.errors.length > 0)) setDialogOpen(true);
   };
 
   return (
@@ -163,29 +170,47 @@ export function FileDrop() {
         sečtou.
       </p>
       <LayerRolesTable />
-      {reports.map((r, i) => (
-        <div key={i} className="import-report" role="status">
-          <p>
-            {r.fileName}: načteno {r.partCount} dílů
-            {r.errors.length > 0 && `, ${r.errors.length} chyb`}
-            {r.warnings.length > 0 && `, ${r.warnings.length} varování`}.
-          </p>
-          {r.errors.length > 0 && (
-            <ul className="errors">
-              {r.errors.map((e, k) => (
-                <li key={k}>{e}</li>
-              ))}
-            </ul>
-          )}
-          {r.warnings.length > 0 && (
-            <ul className="warnings">
-              {r.warnings.map((w, k) => (
-                <li key={k}>{w}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ))}
+      {reports.map((r, i) =>
+        r.kind !== 'csv' ? (
+          // Výkres: jen souhrn, chyby a varování v okně.
+          <div key={i} className="import-report" role="status">
+            <p className={r.errors.length > 0 ? 'has-errors' : undefined}>
+              {reportSummary(r)}
+              {(r.errors.length > 0 || r.warnings.length > 0) && (
+                <>
+                  {' '}
+                  <button type="button" className="link" onClick={() => setDialogOpen(true)}>
+                    Zobrazit chyby a varování
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
+        ) : (
+          <div key={i} className="import-report" role="status">
+            <p>{reportSummary(r)}</p>
+            {r.errors.length > 0 && (
+              <ul className="errors">
+                {r.errors.map((e, k) => (
+                  <li key={k}>{e}</li>
+                ))}
+              </ul>
+            )}
+            {r.warnings.length > 0 && (
+              <ul className="warnings">
+                {r.warnings.map((w, k) => (
+                  <li key={k}>{w}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ),
+      )}
+      <ImportReportDialog
+        reports={drawingReports}
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+      />
     </section>
   );
 }

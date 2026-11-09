@@ -47,5 +47,6 @@ test('DWG starší verze ukáže srozumitelnou chybu', async ({ page }) => {
     .setInputFiles({ name: 'stary.dwg', mimeType: 'application/acad', buffer: r12 });
   const report = page.getByRole('status').filter({ hasText: 'stary.dwg' });
   await expect(report).toContainText('načteno 0 dílů, 1 chyb');
-  await expect(report.locator('.errors li')).toContainText('AutoCAD R11/R12');
+  const dialog = page.getByRole('dialog', { name: 'Hlášení importu výkresů' });
+  await expect(dialog.locator('.errors li')).toContainText('AutoCAD R11/R12');
 });

@@ -166,6 +166,48 @@ input.invalid {
   margin: 0.5rem 0 0;
 }
 
+.import-report p.has-errors {
+  color: var(--danger);
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+button.link:hover:not(:disabled) {
+  background: none;
+}
+
+.report-dialog {
+  width: min(900px, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.report-dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+
+.report-dialog h2 {
+  margin-top: 0;
+}
+
+.report-dialog h3 {
+  font-size: 1rem;
+  margin: 1rem 0 0.25rem;
+}
+
+.report-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
 .errors {
   color: var(--danger);
 }

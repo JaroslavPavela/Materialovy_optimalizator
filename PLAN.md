@@ -178,13 +178,18 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       s původními názvy hladin včetně diakritiky a mezer.
       Hotovo: zpětné čtení vlastním importem, dxf-parserem a čtečkou acad-ts;
       E2E stažení DXF a ZIP ve všech třech verzích.
+- [x] 8.7 Chyby a varování importu DXF/DWG v modálním okně: po nahrání
+      výkresu s chybami se otevře samo, v panelu importu zůstane souhrn
+      souboru s tlačítkem, které okno otevře znovu. Hlášení CSV beze změny.
+      Hotovo: E2E výkres s chybami → okno → zavřít (tlačítko, Esc) → znovu
+      otevřít.
 
 ---
 
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: feat: export DXF ve verzích 2000 a 2018 (krok 8.6)
+Poslední commit: feat: chyby importu výkresů v modálním okně (krok 8.7)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -678,3 +683,8 @@ BLOKOVÁNO: ne
   odpovídá zápisu ACadSharp, ověřují ji tolerantní čtečky (dxf-parser,
   acad-ts, vlastní import). Prázdné slovníky (ACAD_GROUP) acad-ts záměrně
   nezapisuje.
+- 8.7: Na přání uživatele (upřesnil: chyby i varování, okno se otevře samo
+  po importu výkresu s chybami, v panelu jen souhrn). Nativní `<dialog>`
+  (`showModal`, zavření tlačítkem i Esc). Po změně role hladiny se okno samo
+  neotevírá (při zkoušení rolí by překáželo), jeho obsah se ale aktualizuje;
+  tlačítko je u každého souboru s chybami nebo varováními.

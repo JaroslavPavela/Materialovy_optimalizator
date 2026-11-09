@@ -88,5 +88,20 @@ test('DXF s chybami ukáže hlášení a platné díly použije', async ({ page 
   await page.getByLabel('Soubory s díly').setInputFiles(fixture('neuzavrena.dxf'));
   const report = page.getByRole('status').filter({ hasText: 'neuzavrena.dxf' });
   await expect(report).toContainText('načteno 1 dílů, 1 chyb');
-  await expect(report.locator('.errors li')).toContainText('Kontura není uzavřená');
+  // Chyby v modálním okně, které se po importu otevře samo.
+  const dialog = page.getByRole('dialog', { name: 'Hlášení importu výkresů' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.errors li')).toContainText('Kontura není uzavřená');
+  await expect(report.locator('li')).toHaveCount(0);
+  // Zavřít tlačítkem, znovu otevřít, zavřít klávesou Esc, otevřít ještě jednou.
+  await dialog.getByRole('button', { name: 'Zavřít' }).click();
+  await expect(dialog).toBeHidden();
+  await report.getByRole('button', { name: 'Zobrazit chyby a varování' }).click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await report.getByRole('button', { name: 'Zobrazit chyby a varování' }).click();
+  await expect(dialog.locator('.errors li')).toContainText('Kontura není uzavřená');
+  // Okno je modální (stránka pod ním je neaktivní).
+  expect(await dialog.evaluate((d) => d.matches(':modal'))).toBe(true);
 });

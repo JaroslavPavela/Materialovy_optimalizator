@@ -124,7 +124,10 @@ souboru s pořadím (`plech-1`, `plech-2`).
 
 Neuzavřené kontury, větvení (čára přes obrys, ohyb ve stejné vrstvě),
 samoprůniky a překrývající se obrysy se hlásí srozumitelnou chybou s místem
-ve výkresu; díl, kterého se chyba týká, se nepoužije.
+ve výkresu; díl, kterého se chyba týká, se nepoužije. Chyby a varování
+importu výkresu se zobrazí v samostatném okně – po nahrání výkresu s chybami
+se otevře samo, v panelu importu zůstane u souboru souhrn a tlačítko
+_Zobrazit chyby a varování_, které okno otevře znovu.
 
 ### Hladiny výkresu
 
