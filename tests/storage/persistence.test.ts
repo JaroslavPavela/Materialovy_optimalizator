@@ -8,7 +8,15 @@ import { AUTOSAVE_DELAY_MS, initPersistence } from '../../src/storage/persistenc
 
 /** Úložiště v paměti; počítá zápisy. */
 function memoryStorage(project: unknown = null, library: unknown[] = [], roles: unknown = null) {
-  const data = { project, library, roles, projectWrites: 0, libraryWrites: 0, rolesWrites: 0 };
+  const data = {
+    project,
+    library,
+    roles,
+    notesFromAll: null as unknown,
+    projectWrites: 0,
+    libraryWrites: 0,
+    rolesWrites: 0,
+  };
   const storage: ProjectStorage = {
     loadLastProject: () => Promise.resolve(data.project),
     saveLastProject: (file: ProjectFile) => {
@@ -23,6 +31,11 @@ function memoryStorage(project: unknown = null, library: unknown[] = [], roles: 
       return Promise.resolve();
     },
     loadLayerRoles: () => Promise.resolve(data.roles),
+    loadNotesFromAllLayers: () => Promise.resolve(data.notesFromAll),
+    saveNotesFromAllLayers: (v: boolean) => {
+      data.notesFromAll = v;
+      return Promise.resolve();
+    },
     saveLayerRoles: (r: LayerRoles) => {
       data.roles = JSON.parse(JSON.stringify([...r]));
       data.rolesWrites++;
@@ -92,10 +105,14 @@ describe('initPersistence', () => {
   });
 
   it('role hladin se ukládají zvlášť a načtou se zpět (neplatné položky se přeskočí)', async () => {
-    const { storage, data } = memoryStorage(null, [], [
-      ['OHYB', 'attach'],
-      ['X', 'nesmysl'],
-    ]);
+    const { storage, data } = memoryStorage(
+      null,
+      [],
+      [
+        ['OHYB', 'attach'],
+        ['X', 'nesmysl'],
+      ],
+    );
     const p = await initPersistence(storage);
     expect([...state().layerRoles]).toEqual([['OHYB', 'attach']]);
     expect(data.rolesWrites).toBe(0);
@@ -106,6 +123,22 @@ describe('initPersistence', () => {
     expect(data.projectWrites).toBe(0);
     expect(data.roles).toEqual([['DIRY', 'inner']]);
     await p.dispose();
+  });
+
+  it('volba „texty i z hladin obrysů" se uloží hned a načte zpět; jiná hodnota než true = vypnuto', async () => {
+    const { storage, data } = memoryStorage();
+    data.notesFromAll = true;
+    const p = await initPersistence(storage);
+    expect(state().notesFromAllLayers).toBe(true);
+    await state().setNotesFromAllLayers(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(data.notesFromAll).toBe(false);
+    expect(data.projectWrites).toBe(0);
+    await p.dispose();
+    resetAppStore();
+    data.notesFromAll = 'ano';
+    await (await initPersistence(storage)).dispose();
+    expect(state().notesFromAllLayers).toBe(false);
   });
 
   it('poškozená data v úložišti se přeskočí s varováním', async () => {

@@ -9,7 +9,7 @@ import {
   setNestingClient,
   useAppStore,
 } from '../../src/state/store.ts';
-import { circle, dxf, line, rectPoly } from '../core/import/dxf-builder.ts';
+import { circle, dxf, ent, line, rectPoly } from '../core/import/dxf-builder.ts';
 import type { NestingClient } from '../../src/worker/client.ts';
 import { createNestingService } from '../../src/worker/service.ts';
 
@@ -380,6 +380,27 @@ describe('store', () => {
     expect(state().parts).toHaveLength(2);
     expect(state().drawings).toHaveLength(2);
     expect(state().parts.map((p) => p.shape!.marks?.length)).toEqual([1, 1]);
+  });
+
+  it('poznámky: volba „texty i z hladin obrysů" znovu načte výkres', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    const data = enc(
+      dxf({
+        entities: [
+          rectPoly(0, 0, 200, 100, [8, 'OBRYS']),
+          ent('TEXT', [8, 'OBRYS'], [10, 20], [20, 20], [30, 0], [40, 5], [1, 'POZN']),
+        ],
+      }),
+    );
+    await state().importFiles([{ name: 'deska.dxf', data }]);
+    expect(state().parts[0]!.shape!.notes).toBeUndefined();
+    expect(state().drawings[0]!.layers).toEqual([{ name: 'OBRYS', segments: 4, texts: 1 }]);
+    await state().setNotesFromAllLayers(true);
+    expect(state().notesFromAllLayers).toBe(true);
+    expect(state().parts[0]!.shape!.notes!.map((n) => n.text)).toEqual(['POZN']);
+    // Bez nového načtení (z úložiště při startu).
+    await state().setNotesFromAllLayers(false, false);
+    expect(state().parts[0]!.shape!.notes).toHaveLength(1);
   });
 
   it('import DXF: díly se přidají, režim více dílů, dávka CSV + DXF, hlášení po souborech', async () => {

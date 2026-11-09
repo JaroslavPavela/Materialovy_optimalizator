@@ -5,6 +5,7 @@ import { dxfLayerName, writeSheetDxf } from '../../../src/core/export/dxf-writer
 import { segmentsPath, writeSheetSvg } from '../../../src/core/export/svg.ts';
 import { EPS } from '../../../src/core/geometry/eps.ts';
 import type { Point } from '../../../src/core/geometry/types.ts';
+import { readDxf } from '../../../src/core/import/dxf.ts';
 import { partsFromDxf } from '../../../src/core/import/dxf-parts.ts';
 import {
   DEFAULT_NESTING_PARAMS,
@@ -302,5 +303,99 @@ describe('projekt a validace s hladinami', () => {
         marks: [{ layer: 'A', segments: [{ a: { x: NaN, y: 0 }, b: { x: 1, y: 1 }, bulge: 0 }] }],
       }),
     ).toEqual(['Díl „Deska": geometrie přidaná k dílu má neplatné souřadnice.']);
+  });
+});
+
+describe('textové poznámky v exportu', () => {
+  const noted: Part = {
+    ...plate,
+    id: 'n',
+    shape: {
+      ...plate.shape!,
+      notes: [
+        {
+          layer: 'Poznámky',
+          text: 'S235 ⌀8 100%',
+          at: { x: 50, y: 30 },
+          height: 4,
+          rotation: 0,
+          widthFactor: 0.8,
+          halign: 1,
+          valign: 2,
+          backwards: false,
+        },
+        {
+          layer: '0',
+          text: 'VLEVO',
+          at: { x: 5, y: 5 },
+          height: 3,
+          rotation: 10,
+          widthFactor: 1,
+          halign: 0,
+          valign: 0,
+          backwards: true,
+        },
+      ],
+    },
+  };
+  const placement = { partId: 'n', instance: 0, x: 200, y: 20, rotation: 90 };
+  const one: SheetLayout = { sheetId: 't', placements: [placement] };
+
+  it('zadání je platné; neplatná poznámka je chyba validace', () => {
+    expect(
+      validateNestingInput({ parts: [noted], sheets: [sheet], params: DEFAULT_NESTING_PARAMS }),
+    ).toEqual([]);
+    const bad: Part = {
+      ...noted,
+      shape: { ...noted.shape!, notes: [{ ...noted.shape!.notes![0]!, height: 0 }] },
+    };
+    expect(
+      validateNestingInput({ parts: [bad], sheets: [sheet], params: DEFAULT_NESTING_PARAMS }).map(
+        (i) => i.message,
+      ),
+    ).toEqual(['Díl „Deska": textová poznámka má neplatnou polohu, výšku nebo šířkový faktor.']);
+  });
+
+  it('DXF: TEXT na hladině poznámky, natočený s dílem; zpětný import dá stejné řádky', () => {
+    const text = writeSheetDxf(sheet, one, [noted]);
+    const back = readDxf(text).texts.filter((t) => t.layer !== 'POPISKY');
+    const placed = placedContours(noted, placement).notes!;
+    expect(back.map((t) => t.layer)).toEqual(['POZNAMKY', '0']);
+    back.forEach((t, i) => {
+      const want = placed[i]!;
+      const got = t.lines[0]!;
+      expect(got.text).toBe(want.text);
+      expect(near(got.at, want.at)).toBe(true);
+      expect(Math.abs(got.height - want.height)).toBeLessThan(EPS);
+      expect(Math.abs(got.rotation - want.rotation)).toBeLessThan(1e-6);
+      expect(Math.abs(got.widthFactor - want.widthFactor)).toBeLessThan(1e-9);
+      expect([got.halign, got.valign, got.backwards]).toEqual([
+        want.halign,
+        want.valign,
+        want.backwards,
+      ]);
+    });
+    expect(placed[0]!.rotation).toBe(90);
+    const layers = parse(text).tables.layer.layers;
+    expect(layers['POZNAMKY']?.colorIndex).toBe(2);
+  });
+
+  it('SVG: text poznámky s natočením, zarovnáním a šířkovým faktorem', () => {
+    const svg = writeSheetSvg(sheet, one, [noted]);
+    expect(svg).toMatch(
+      /<text transform="translate\(\S+ \S+\) rotate\(-90\) scale\(0\.8 1\)" font-size="5\.714\d*" text-anchor="middle" dominant-baseline="central">S235 ⌀8 100%<\/text>/,
+    );
+    expect(svg).toMatch(
+      /scale\(-1 1\)[^>]*text-anchor="start" dominant-baseline="alphabetic">VLEVO/,
+    );
+  });
+
+  it('projekt JSON zachová poznámky; neplatná poznámka je chyba', () => {
+    const project = { parts: [noted], sheets: [sheet], params: DEFAULT_NESTING_PARAMS };
+    const r = parseProject(serializeProject(project, new Date('2026-11-09T10:00:00Z')));
+    expect(r.ok && r.project.parts).toEqual([noted]);
+    const broken = JSON.parse(serializeProject(project, new Date()));
+    broken.parts[0].shape.notes[0].halign = 7;
+    expect(parseProject(JSON.stringify(broken)).ok).toBe(false);
   });
 });

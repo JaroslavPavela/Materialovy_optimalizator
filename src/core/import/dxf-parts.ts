@@ -10,9 +10,16 @@ import { EPS } from '../geometry/eps.ts';
 import { pointInRing, pointRingDistance } from '../geometry/polygon.ts';
 import { translateContour } from '../geometry/transform.ts';
 import type { Contour, Point, Rect, Ring } from '../geometry/types.ts';
-import type { Part, PartMarks, PartShape, RotationMode, ShapeSegment } from '../model.ts';
+import type { Part, PartMarks, PartNote, PartShape, RotationMode, ShapeSegment } from '../model.ts';
+import { noteCorners } from '../notes.ts';
 import { buildContours, JOIN_TOL, type ContourOptions, type ShapeRegion } from './contours.ts';
-import { readDxf, type DxfReadOptions, type DxfSegment, type DxfUnits } from './dxf.ts';
+import {
+  readDxf,
+  type DxfReadOptions,
+  type DxfSegment,
+  type DxfText,
+  type DxfUnits,
+} from './dxf.ts';
 import { drawingLayers, layerRole, type DrawingLayer, type LayerRoles } from './layers.ts';
 import { prepareShape, regionLabels, samePreparedShape, type PreparedShape } from './part-names.ts';
 
@@ -33,6 +40,11 @@ export interface DxfPartsOptions extends DxfReadOptions, ContourOptions {
   readonly layer?: (name: string) => boolean;
   /** Role hladin (vnější/vnitřní obrys, přidat k dílu, ignorovat); chybějící = vnější obrys. */
   readonly layerRoles?: LayerRoles;
+  /**
+   * Texty s dílem přenést i z hladin obrysů (vnější a vnitřní obrys), ne jen
+   * z hladin „přidej k dílu".
+   */
+  readonly notesFromAllLayers?: boolean;
 }
 
 export interface DxfPartsResult {
@@ -61,6 +73,63 @@ export function baseName(fileName: string): string {
 /** Oblast s geometrií přidanou k dílu. */
 interface MarkedRegion extends ShapeRegion {
   readonly marks: readonly PartMarks[];
+  readonly notes: readonly PartNote[];
+}
+
+/**
+ * Přiřadí texty (všechny řádky najednou) nejhlouběji vnořené oblasti, v jejímž
+ * vnějším obrysu leží celý odhadnutý obdélník každého řádku (`noteCorners`,
+ * tolerance 2 × joinTol; v otvoru ležet smí). Ostatní vrátí jako `outside`.
+ */
+function attachNotes(
+  regions: readonly MarkedRegion[],
+  texts: readonly DxfText[],
+  joinTol: number,
+): { regions: MarkedRegion[]; outside: Map<string, number> } {
+  const outside = new Map<string, number>();
+  if (texts.length === 0) return { regions: [...regions], outside };
+  const tol = 2 * joinTol;
+  const bboxes = regions.map((r) => contourBBox(r.outer));
+  // Obrys se aproximuje jen u dílů, ke kterým se nějaký text blíží.
+  const rings = new Map<number, Ring>();
+  const ringOf = (i: number) => {
+    let ring = rings.get(i);
+    if (!ring) rings.set(i, (ring = contourToRing(regions[i]!.outer, joinTol)));
+    return ring;
+  };
+  const notes = regions.map(() => [] as PartNote[]);
+  const inBox = (p: Point, b: Rect) =>
+    p.x >= b.x - tol &&
+    p.y >= b.y - tol &&
+    p.x <= b.x + b.width + tol &&
+    p.y <= b.y + b.height + tol;
+  /** Obdélník řádku (4 rohy) leží v obrysu a jeho hrany hranici nekříží (tvar U). */
+  const boxInside = (corners: readonly Point[], i: number) => {
+    if (!corners.every((p) => inBox(p, bboxes[i]!))) return false;
+    const ring = ringOf(i);
+    if (!corners.every((p) => pointInRing(p, ring) || pointRingDistance(p, ring) <= tol)) {
+      return false;
+    }
+    return corners.every((p, k) => {
+      const q = corners[(k + 1) % corners.length]!;
+      return !ring.some((c, j) => crossesProperly(p, q, c, ring[(j + 1) % ring.length]!, tol));
+    });
+  };
+  for (const t of texts) {
+    if (t.lines.length === 0) continue;
+    const boxes = t.lines.map((l) => noteCorners(l));
+    let best = -1;
+    regions.forEach((r, i) => {
+      if (best >= 0 && regions[best]!.depth >= r.depth) return;
+      if (boxes.every((c) => boxInside(c, i))) best = i;
+    });
+    if (best < 0) outside.set(t.layer, (outside.get(t.layer) ?? 0) + 1);
+    else notes[best]!.push(...t.lines.map((l) => ({ ...l, layer: t.layer })));
+  }
+  return {
+    regions: regions.map((r, i) => ({ ...r, notes: notes[i]! })),
+    outside,
+  };
 }
 
 /** Úsečky `a–b` a `c–d` se protínají uvnitř obou (dotyk ani překryv ne). */
@@ -155,6 +224,7 @@ function attachMarks(
     regions: regions.map((r, i) => ({
       ...r,
       marks: [...prepared[i]!.byLayer].map(([layer, segs]) => ({ layer, segments: segs })),
+      notes: [],
     })),
     outside,
   };
@@ -168,7 +238,7 @@ const SAME_TOL = 0.05;
  * počátku) stejné hladiny obrysu a otvorů a stejnou přidanou geometrii na
  * stejných místech? Otvory se párují podle obalového obdélníku.
  */
-function sameLayersAndMarks(a: PartShape, b: PartShape): boolean {
+function sameLayersAndMarks(a: PartShape, b: PartShape, label: string | null): boolean {
   if (a.layers?.outer !== b.layers?.outer) return false;
   const holes = (s: PartShape) =>
     s.holes.map((h, i) => ({ bbox: contourBBox(h), layer: s.layers?.holes[i] }));
@@ -213,7 +283,24 @@ function sameLayersAndMarks(a: PartShape, b: PartShape): boolean {
     }
     if (!found) return false;
   }
-  return true;
+  return sameNoteTexts(a, b, label);
+}
+
+/**
+ * Stejné poznámky = stejné texty na stejných hladinách; poloha se nepočítá
+ * (ručně psané texty se mezi kopiemi vždy trochu liší, sloučený díl dostane
+ * poznámky první kopie). Text, podle kterého se díl jmenuje, se vynechá.
+ */
+function sameNoteTexts(a: PartShape, b: PartShape, label: string | null): boolean {
+  const keys = (s: PartShape) => {
+    const list = (s.notes ?? []).map((n) => `${n.layer}\u0000${n.text}`);
+    const named = (s.notes ?? []).findIndex((n) => n.text === label);
+    if (named >= 0) list.splice(named, 1);
+    return list.sort();
+  };
+  const ka = keys(a);
+  const kb = keys(b);
+  return ka.length === kb.length && ka.every((k, i) => k === kb[i]);
 }
 
 /** Klíč polohy oblasti ve výkresu (obalový obdélník na 0,01 mm). */
@@ -234,6 +321,9 @@ function normalizeRegion(region: MarkedRegion, label: string | null) {
         layer: m.layer,
         segments: m.segments.map((s) => ({ a: movePoint(s.a), b: movePoint(s.b), bulge: s.bulge })),
       })),
+    }),
+    ...(region.notes.length > 0 && {
+      notes: region.notes.map((n) => ({ ...n, at: movePoint(n.at) })),
     }),
   };
   return {
@@ -266,7 +356,7 @@ export function partsFromDxf(
       errors: read.errors,
     };
   }
-  const layers = drawingLayers(read.segments);
+  const layers = drawingLayers(read.segments, read.texts);
   const filter = opts.layer;
   const roles = opts.layerRoles;
   const usedLayer = (layer: string) =>
@@ -315,10 +405,29 @@ export function partsFromDxf(
   }
   // Přidaná geometrie až po výběru dílů: co v režimu „1 soubor = 1 díl" leží
   // jen v ignorované kontuře, se nahlásí jako mimo obrysy.
-  const marked = attachMarks(regions, attached, opts.joinTol ?? JOIN_TOL);
+  const joinTol = opts.joinTol ?? JOIN_TOL;
+  const marked = attachMarks(regions, attached, joinTol);
   for (const [layer, n] of marked.outside) {
     warnings.push(
       `Na hladině „${layer}" (přidej k dílu) leží ${n} segmentů mimo obrysy dílů – ignorovány.`,
+    );
+  }
+  // Textové poznámky: z hladin „přidej k dílu", případně i z hladin obrysů.
+  // Hladina POPISKY z vlastního exportu nese názvy dílů – jako poznámku ji
+  // přenést jen výslovně (role „přidej k dílu"), jinak by se název zdvojil.
+  const noteTexts = read.texts.filter((t) => {
+    if (!usedLayer(t.layer)) return false;
+    const role = layerRole(roles, t.layer);
+    if (role === 'attach') return true;
+    return opts.notesFromAllLayers === true && role !== 'ignore' && t.layer !== 'POPISKY';
+  });
+  const noted = attachNotes(marked.regions, noteTexts, joinTol);
+  for (const [layer, n] of noted.outside) {
+    warnings.push(`Na hladině „${layer}" leží ${n} textů mimo obrysy dílů – nepřeneseny.`);
+  }
+  if (noteTexts.some((t) => t.formatted)) {
+    warnings.push(
+      'Formátování víceřádkových textů (písmo, barvy, zlomky) se nepřenáší – texty jsou prosté řádky.',
     );
   }
 
@@ -328,7 +437,7 @@ export function partsFromDxf(
   // na vlastní vrstvě), hladina s rolí „ignoruj" ano.
   const texts = read.texts.filter((t) => layerRole(roles, t.layer) !== 'ignore');
   const labels = mode === 'multi' ? regionLabels(regions, texts) : regions.map(() => null);
-  const normalized = marked.regions
+  const normalized = noted.regions
     .map((r, i) => normalizeRegion(r, labels[i]!))
     .sort((a, b) => (Math.abs(b.top - a.top) > EPS ? b.top - a.top : a.left - b.left));
 
@@ -363,7 +472,8 @@ export function partsFromDxf(
     const prepared = prepareShape(n.shape);
     const same = byLabel.get(n.label) ?? [];
     const match = same.find(
-      (g) => samePreparedShape(g.prepared!, prepared) && sameLayersAndMarks(g.shape, n.shape),
+      (g) =>
+        samePreparedShape(g.prepared!, prepared) && sameLayersAndMarks(g.shape, n.shape, n.label),
     );
     if (match) {
       match.count++;
@@ -401,7 +511,7 @@ export function partsFromDxf(
   for (const [label, same] of byLabel) {
     if (same.length > 1) {
       warnings.push(
-        `Díly s textem „${label}" mají různý tvar nebo natočení – ponechány zvlášť: ${same.map((g) => g.name).join(', ')}.`,
+        `Díly s textem „${label}" mají různý tvar nebo natočení (případně přidanou geometrii či poznámky) – ponechány zvlášť: ${same.map((g) => g.name).join(', ')}.`,
       );
     }
   }

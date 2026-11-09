@@ -131,12 +131,20 @@ ve výkresu; díl, kterého se chyba týká, se nepoužije.
 Po načtení DXF nebo DWG se v panelu importu zobrazí hladiny s geometrií
 a u každé jde zvolit, jak se použije:
 
-| Role          | Význam                                                                                                                                                      |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| vnější obrys  | výchozí – obrysy dílů; kontura uvnitř jiné je otvor (jako výše)                                                                                             |
-| vnitřní obrys | kontury jsou jen otvory; kontura mimo materiál dílu se ignoruje s varováním, kontura přesahující obrys díl vyřadí                                           |
-| přidej k dílu | geometrie (gravírování, ohyby, značky) jede s dílem do náhledu a exportu, skládání ji nebere v úvahu; co neleží celé v obrysu dílu, se ignoruje s varováním |
-| ignoruj       | hladina se nepoužije (ani její texty pro názvy dílů)                                                                                                        |
+| Role          | Význam                                                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| vnější obrys  | výchozí – obrysy dílů; kontura uvnitř jiné je otvor (jako výše)                                                                                                      |
+| vnitřní obrys | kontury jsou jen otvory; kontura mimo materiál dílu se ignoruje s varováním, kontura přesahující obrys díl vyřadí                                                    |
+| přidej k dílu | geometrie (gravírování, ohyby, značky) i texty jedou s dílem do náhledu a exportu, skládání je nebere v úvahu; co neleží celé v obrysu dílu, se ignoruje s varováním |
+| ignoruj       | hladina se nepoužije (ani její texty pro názvy dílů)                                                                                                                 |
+
+Textové poznámky (TEXT, MTEXT) se přenáší z hladin „přidej k dílu", po
+zaškrtnutí _Přenášet texty i z hladin obrysů_ i z hladin s obrysy (i text,
+který díl pojmenoval). Text patří dílu, ve kterém leží celý (šířka textu se
+odhaduje bez metrik písma). Zachová se natočení, výška, šířkový faktor
+a zarovnání; víceřádkový MTEXT se rozdělí na řádky a jeho formátování
+(písmo, barvy, zlomky) se ztratí s varováním. V exportu DXF jsou poznámky
+jako TEXT na své hladině; CAM je zobrazí svým písmem.
 
 Po změně role se díly ze všech načtených výkresů hned načtou znovu – bez
 nového nahrání souboru. Ruční úpravy dílů (název, počet, natočení, materiál,
@@ -186,8 +194,7 @@ G-kód ani pořadí řezů se negenerují – to je úloha CAM.
   chybný (větvení) – je potřeba ho v CADu vyčistit.
 - Normála entit musí mířit v ose Z (±Z); entity v natočené rovině se
   přeskočí.
-- K dílu se z hladin „přidej k dílu" přenáší jen geometrie (čáry, oblouky,
-  křivky), ne texty. Kopie dílu z výkresu přidaná tlačítkem „+ Přidat díl"
+- Atributy bloků (ATTRIB) se jako poznámky nepřenáší. Kopie dílu z výkresu přidaná tlačítkem „+ Přidat díl"
   se po změně rolí hladin nenačte znovu – ponechá si původní tvar.
 - DWG čte knihovna třetí strany (reverzní inženýrství formátu). Některé
   objekty výkresu se přečíst nemusí – aplikace na to upozorní. Když díl

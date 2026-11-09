@@ -296,6 +296,11 @@ table.parts input.num {
   text-align: left;
 }
 
+.notes-option {
+  display: block;
+  margin-top: 0.4rem;
+}
+
 .layer-roles th.num,
 .layer-roles td.num {
   text-align: right;
@@ -518,6 +523,12 @@ svg .part-marks {
   pointer-events: none;
 }
 
+svg .part-note {
+  fill: #0550ae;
+  font-family: sans-serif;
+  pointer-events: none;
+}
+
 svg .part:hover {
   stroke-width: 2px;
   filter: brightness(0.92);
@@ -721,15 +732,7 @@ svg .remnant-label {
   border-radius: 4px;
 }
 
-.sheet-card svg .part-marks {
-  fill: none;
-  stroke: #0550ae;
-  stroke-width: 1px;
-  vector-effect: non-scaling-stroke;
-  pointer-events: none;
-}
-
-svg .part:hover {
+.sheet-card svg .part:hover {
   stroke-width: 1px;
   filter: none;
 }

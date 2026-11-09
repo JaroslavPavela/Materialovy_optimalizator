@@ -166,13 +166,20 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
       Hotovo: jednotkové testy rolí, přiřazení přidané geometrie, sloučení
       po novém načtení a vrstev exportu; E2E výkres s hladinami → změna rolí
       → plán → export DXF s původními hladinami → role po obnovení stránky.
+- [x] 8.5 Textové poznámky: texty (TEXT, MTEXT) z hladin „přidej k dílu",
+      volitelně i z hladin obrysů, se přenesou s dílem do náhledu, SVG,
+      tisku a exportu DXF (TEXT na původní hladině) – i text, který díl
+      pojmenoval. MTEXT jako prosté řádky; natočení, výška, šířkový faktor
+      a zarovnání zůstanou.
+      Hotovo: jednotkové testy čtení, přiřazení, umístění a zápisu poznámek;
+      E2E hladina s texty → přidej k dílu → náhled a export DXF s TEXT.
 
 ---
 
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: feat: role hladin při importu DXF/DWG a původní hladiny v exportu (krok 8.4)
+Poslední commit: feat: textové poznámky z výkresu přenášené s dílem (krok 8.5)
 BLOKOVÁNO: ne
 
 ## Odchylky
@@ -598,3 +605,34 @@ BLOKOVÁNO: ne
   vtáhl do hlavního balíku čtení DXF s Clipperem (529 kB, varování buildu).
   Kontrola: lint, typecheck, 584 testů, 27 e2e, build bez varování (hlavní
   balík 426 kB).
+- 8.5: Na přání uživatele (po prověření; upřesnil: export i náhled/SVG/tisk,
+  přenášet i text, který díl pojmenoval, a volba pro texty z hladin obrysů –
+  role se volí pro celou hladinu, poznámky na hladině obrysů by jinak nešly
+  přenést). Řádek textu = `PartNote` (bod podle zarovnání TEXT 72/73,
+  natočení, výška velkých písmen, šířkový faktor, pozpátku), převedený přes
+  OCS a bloky: natočení podle obrazu osy X, výška podle zvětšení kolmo,
+  šířkový faktor podle poměru, zrcadlení = pozpátku, vzhůru nohama = +180°
+  a pozpátku. Zarovnaný a přizpůsobený text (72 = 3, 5) jde na střed
+  úsečky 10–11 bez roztažení. MTEXT: řádky po rozteči 5/3 výšky zarovnané
+  nahoru podle bodu připojení; formátování (kromě \\P a escapovaných znaků)
+  se ztratí s jedním varováním. Text patří dílu, v jehož obrysu leží celý
+  odhadnutý obdélník všech řádků (0,6 × výška na znak, jako odhad středu
+  pro názvy). Seznam hladin ukazuje i hladiny jen s texty. Náhled a SVG:
+  velikost písma = výška / 0,7 (jako popisky). Volba se ukládá hned do
+  IndexedDB (`texty-z-obrysu`).
+  Revize subagentem revize-geometrie našla 10 problémů; opraveno s testy:
+  zrcadlený text (normála −Z, blok se záporným měřítkem) byl otočený o 180°
+  – natočení je úhel obrazu −X; kopie s ručně posunutým popiskem se
+  přestaly slučovat – poznámky se porovnávají jen texty (bez polohy, bez
+  textu, který díl pojmenoval), sloučený díl má poznámky první kopie; text
+  přes zářez tvaru U (kontrola křížení hran obdélníku s obrysem); obrys dílu
+  se aproximuje jen u dílů, ke kterým se text blíží; MTEXT se zalamuje
+  podle šířky rámečku (kód 41); `\~` a `\X` nejsou formátování; zarovnání
+  dole v SVG pod dotahy (`text-after-edge`, obdélník + 0,3 výšky); texty
+  z hladiny POPISKY (vlastní export) se volbou „texty z obrysů" nepřenáší –
+  jen výslovně rolí „přidej k dílu". Ponecháno: hlášení „Přeskočeny entity
+  bez geometrie dílu: TEXT" zůstává i u použitých textů (na jeho znění stojí
+  testy vzorků); zarovnání odstavce MTEXT (`\pxqc;`) se nepřenáší.
+  Opravena i chyba kroku 8.4: hromadná náhrada v CSS rozbila pravidlo
+  `.sheet-card svg .part:hover`, takže v náhledu nefungovalo zvýraznění
+  dílu pod myší.

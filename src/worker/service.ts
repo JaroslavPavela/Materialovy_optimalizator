@@ -34,7 +34,10 @@ export interface NestingService {
 }
 
 /** Volby importu DXF/DWG přenositelné do workeru (bez funkcí). */
-export type DxfImportOptions = Pick<DxfPartsOptions, 'mode' | 'idPrefix' | 'rotation' | 'layerRoles'>;
+export type DxfImportOptions = Pick<
+  DxfPartsOptions,
+  'mode' | 'idPrefix' | 'rotation' | 'layerRoles' | 'notesFromAllLayers'
+>;
 
 /** Předá řízení smyčce událostí, aby worker stihl přijmout `stop()`. */
 const macrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));

@@ -58,7 +58,8 @@ test('DXF → plán se skutečnými tvary → export DXF se stejnými díly', as
     layer: (l) => l === 'DIL',
   });
   expect(exported.errors).toEqual([]);
-  expect(exported.layers.map((l) => l.name)).toEqual(['DIL', 'TABULE', 'ZBYTEK']);
+  // Seznam hladin obsahuje i hladiny jen s texty (POPISKY).
+  expect(exported.layers.map((l) => l.name)).toEqual(['DIL', 'POPISKY', 'TABULE', 'ZBYTEK']);
   const net = (p: (typeof exported.parts)[number]) =>
     contourArea(p.shape!.outer) - p.shape!.holes.reduce((s, h) => s + contourArea(h), 0);
   const source = ['dil-s-otvory.dxf', 'spline.dxf'].map(

@@ -24,10 +24,11 @@ export async function initPersistence(
   now: () => Date = () => new Date(),
 ): Promise<Persistence> {
   const store = useAppStore;
-  const [lastProject, library, roles] = await Promise.all([
+  const [lastProject, library, roles, notesFromAll] = await Promise.all([
     storage.loadLastProject(),
     storage.loadSheetLibrary(),
     storage.loadLayerRoles(),
+    storage.loadNotesFromAllLayers(),
   ]);
   if (lastProject !== null && lastProject !== undefined) {
     const r = projectFromJson(lastProject);
@@ -37,6 +38,7 @@ export async function initPersistence(
   const sheets = library.map(sheetFromJson).filter((s): s is Sheet => s !== null);
   store.getState().setSheetLibrary(sheets);
   store.getState().setLayerRoles(layerRolesFromJson(roles));
+  await store.getState().setNotesFromAllLayers(notesFromAll === true, false);
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let projectDirty = false;
@@ -75,6 +77,12 @@ export async function initPersistence(
       writing = writing
         .then(() => storage.saveLayerRoles(roles))
         .catch((e: unknown) => console.warn('Uložení rolí hladin selhalo:', e));
+    }
+    if (s.notesFromAllLayers !== prev.notesFromAllLayers) {
+      const value = s.notesFromAllLayers;
+      writing = writing
+        .then(() => storage.saveNotesFromAllLayers(value))
+        .catch((e: unknown) => console.warn('Uložení volby textů selhalo:', e));
     }
     if ((projectDirty || libraryDirty) && timer === null) {
       timer = setTimeout(write, AUTOSAVE_DELAY_MS);

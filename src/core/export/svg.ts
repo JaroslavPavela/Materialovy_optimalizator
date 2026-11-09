@@ -4,6 +4,7 @@ import type {
   NestingInput,
   NestingResult,
   Part,
+  PartNote,
   ShapeSegment,
   Sheet,
   SheetLayout,
@@ -123,6 +124,30 @@ export interface PlacedPartPath {
   readonly path: string;
   /** Geometrie přidaná k dílu (jen tah, bez výplně); prázdná, když žádná není. */
   readonly marks: string;
+  /** Textové poznámky dílu v souřadnicích tabule. */
+  readonly notes: readonly PartNote[];
+}
+
+/** Velikost písma SVG (em) z výšky velkých písmen DXF (≈ 0,7 em). */
+export const noteFontSize = (n: PartNote) => n.height / 0.7;
+
+const NOTE_ANCHOR = ['start', 'middle', 'end'] as const;
+/** `valign` 0 účaří, 1 dole (pod dotahy), 2 uprostřed, 3 nahoře. */
+const NOTE_BASELINE = ['alphabetic', 'text-after-edge', 'central', 'hanging'] as const;
+
+/**
+ * Vlastnosti SVG `<text>` poznámky pro výkres s převrácenou osou Y (`flipY`):
+ * poloha, natočení (CW v SVG), šířkový faktor a zrcadlení jako transformace.
+ */
+export function noteTextProps(n: PartNote, flipY: (y: number) => number) {
+  const sx = n.widthFactor * (n.backwards ? -1 : 1);
+  const f = svgNumber;
+  return {
+    transform: `translate(${f(n.at.x)} ${f(flipY(n.at.y))}) rotate(${f(-n.rotation)})${sx === 1 ? '' : ` scale(${f(sx)} 1)`}`,
+    fontSize: noteFontSize(n),
+    textAnchor: NOTE_ANCHOR[n.halign],
+    dominantBaseline: NOTE_BASELINE[n.valign],
+  };
 }
 
 /** Umístěné díly s cestami obrysů; neznámé ID dílu vyhodí `RangeError`. */
@@ -132,11 +157,12 @@ export function placedPartPaths(parts: readonly Part[], layout: SheetLayout): Pl
     const part = byId.get(placement.partId);
     if (!part) throw new RangeError(`Umístění odkazuje na neznámý díl „${placement.partId}".`);
     const placed: PlacedPart = placePart(part, placement);
-    const { outer, holes, marks } = placedContours(part, placement);
+    const { outer, holes, marks, notes } = placedContours(part, placement);
     return {
       placed,
       path: [outer, ...holes].map(contourPath).join(''),
       marks: segmentsPath((marks ?? []).flatMap((m) => m.segments)),
+      notes: notes ?? [],
     };
   });
 }
@@ -210,6 +236,17 @@ export function writeSheetSvg(
           `<text x="${f(r.x + r.width / 2)}" y="${f(H - r.y - r.height / 2)}" font-size="${f(size)}" fill="#1a7f37">${label}</text>`,
         );
       }
+    }
+    out.push('</g>');
+  }
+  const notes = items.flatMap((i) => i.notes);
+  if (notes.length > 0) {
+    out.push(`<g font-family="sans-serif" fill="#0550ae">`);
+    for (const n of notes) {
+      const p = noteTextProps(n, (y) => H - y);
+      out.push(
+        `<text transform="${p.transform}" font-size="${f(p.fontSize)}" text-anchor="${p.textAnchor}" dominant-baseline="${p.dominantBaseline}">${xmlEscape(n.text)}</text>`,
+      );
     }
     out.push('</g>');
   }

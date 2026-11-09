@@ -135,6 +135,14 @@ function shapeIssues(shape: PartShape, width: number, height: number): string[] 
     m.segments.every((g) => finitePoint(g.a) && finitePoint(g.b) && Number.isFinite(g.bulge)),
   );
   if (!marksOk) issues.push('geometrie přidaná k dílu má neplatné souřadnice.');
+  const notesOk = (shape.notes ?? []).every(
+    (n) =>
+      finitePoint(n.at) &&
+      isPositive(n.height) &&
+      Number.isFinite(n.rotation) &&
+      isPositive(n.widthFactor),
+  );
+  if (!notesOk) issues.push('textová poznámka má neplatnou polohu, výšku nebo šířkový faktor.');
   const outer = contourOrientation(shape.outer);
   if (outer === 'degenerate') return ['vnější obrys má nulovou plochu.'];
   if (outer !== 'ccw')

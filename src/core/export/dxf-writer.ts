@@ -7,6 +7,7 @@ import type {
   NestingInput,
   NestingResult,
   Part,
+  PartNote,
   Sheet,
   SheetLayout,
   ShapeSegment,
@@ -72,6 +73,7 @@ class LayerNames {
       this.add(shape.layers.outer, 'outer');
       for (const h of shape.layers.holes) this.add(h, 'hole');
       for (const m of shape.marks ?? []) this.add(m.layer, 'mark');
+      for (const n of shape.notes ?? []) this.add(n.layer, 'mark');
     }
   }
 
@@ -222,6 +224,21 @@ function writeSegment(dxf: DxfBuilder, s: ShapeSegment, layer: string) {
     .pair(51, normDeg(start + Math.abs(arc.sweep)), ANGLE_DIGITS);
 }
 
+/**
+ * Textová poznámka jako TEXT: výška, natočení, šířkový faktor (41), pozpátku
+ * (71 = 2) a zarovnání 72/73 s bodem 11 (u zarovnání vlevo na účaří jen bod 10).
+ */
+function writeNote(dxf: DxfBuilder, n: PartNote, layer: string) {
+  if (!n.text || !(n.height > 0)) return;
+  dxf.entity('TEXT', layer).point(n.at).pair(40, n.height).pair(1, dxfText(n.text));
+  if (Math.abs(n.rotation) > ANGLE_EPS) dxf.pair(50, normDeg(n.rotation), ANGLE_DIGITS);
+  if (Math.abs(n.widthFactor - 1) > 1e-9) dxf.pair(41, n.widthFactor);
+  if (n.backwards) dxf.pair(71, '2');
+  if (n.halign !== 0 || n.valign !== 0) {
+    dxf.pair(72, String(n.halign)).pair(73, String(n.valign)).point(n.at, 11);
+  }
+}
+
 function writeContour(dxf: DxfBuilder, contour: Contour, layer: string, opts: DxfOptions) {
   const circle = asCircle(contour);
   if (circle) {
@@ -307,8 +324,9 @@ export function writeSheetDxf(
       return layer === undefined ? 'OTVORY' : names.get(layer, 'hole');
     }),
     marks: (c.marks ?? []).map((m) => names.get(m.layer, 'mark')),
+    notes: (c.notes ?? []).map((n) => names.get(n.layer, 'mark')),
   }));
-  const used = new Set(partLayers.flatMap((l) => [l.outer, ...l.holes, ...l.marks]));
+  const used = new Set(partLayers.flatMap((l) => [l.outer, ...l.holes, ...l.marks, ...l.notes]));
   const layers: [string, number][] = [
     ...(Object.entries(DXF_LAYERS) as [DxfLayer, number][]),
     ...[...names.colors].filter(([n]) => used.has(n)),
@@ -368,6 +386,7 @@ export function writeSheetDxf(
     (c.marks ?? []).forEach((m, k) => {
       for (const s of m.segments) writeSegment(dxf, s, layer.marks[k]!);
     });
+    (c.notes ?? []).forEach((n, k) => writeNote(dxf, n, layer.notes[k]!));
   });
   if (opts.labels !== false) {
     for (const { label } of placed) {

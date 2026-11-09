@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type PointerEvent } from 'react';
-import { partColors, placedPartPaths, ringPath } from '../core/export/svg.ts';
+import { noteTextProps, partColors, placedPartPaths, ringPath } from '../core/export/svg.ts';
 import { labelSize } from '../core/placed.ts';
 import type { Part, Sheet, SheetLayout, SheetMetrics } from '../core/model.ts';
 import { sheetNumbersText } from '../core/sheet-groups.ts';
@@ -132,6 +132,23 @@ function SheetDrawing({ sheet, layout, metrics, parts }: SheetSvgProps) {
           {p.part.name}
         </text>
       ))}
+      {placed.flatMap(({ placed: p, notes }) =>
+        notes.map((n, k) => {
+          const t = noteTextProps(n, flipY);
+          return (
+            <text
+              key={`${p.part.id}-${p.placement.instance}-${k}`}
+              className="part-note"
+              transform={t.transform}
+              fontSize={t.fontSize}
+              textAnchor={t.textAnchor}
+              dominantBaseline={t.dominantBaseline}
+            >
+              {n.text}
+            </text>
+          );
+        }),
+      )}
       {remnant && (
         <text
           className="remnant-label"

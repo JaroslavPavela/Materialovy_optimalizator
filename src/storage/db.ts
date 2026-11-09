@@ -16,6 +16,9 @@ export interface ProjectStorage {
   /** Role hladin jako seznam dvojic [hladina, role] (ověří `layerRolesFromJson`). */
   loadLayerRoles(): Promise<unknown>;
   saveLayerRoles(roles: LayerRoles): Promise<void>;
+  /** Volba „přenášet texty i z hladin obrysů" (boolean, jinak se ignoruje). */
+  loadNotesFromAllLayers(): Promise<unknown>;
+  saveNotesFromAllLayers(value: boolean): Promise<void>;
 }
 
 interface SettingRow {
@@ -37,6 +40,7 @@ interface SheetFormatRow {
 
 const LAST_PROJECT = 'posledni';
 const LAYER_ROLES = 'role-hladin';
+const NOTES_FROM_ALL = 'texty-z-obrysu';
 
 class AppDb extends Dexie {
   projects!: EntityTable<ProjectRow, 'id'>;
@@ -77,6 +81,12 @@ export function createDexieStorage(): ProjectStorage {
     },
     async saveLayerRoles(roles) {
       await db.settings.put({ id: LAYER_ROLES, value: [...roles] });
+    },
+    async loadNotesFromAllLayers() {
+      return (await db.settings.get(NOTES_FROM_ALL))?.value ?? null;
+    },
+    async saveNotesFromAllLayers(value) {
+      await db.settings.put({ id: NOTES_FROM_ALL, value });
     },
   };
 }

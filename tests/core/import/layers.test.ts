@@ -66,10 +66,13 @@ describe('role hladin – pomocné funkce', () => {
     expect(originsMatch('9,9,1,1|0,0,10,5', '0,0,10,5')).toBe(true);
   });
 
-  it('hladiny výkresu se počty segmentů, seřazené podle názvu', () => {
-    expect(drawingLayers([{ layer: 'b' }, { layer: 'A' }, { layer: 'b' }])).toEqual([
-      { name: 'A', segments: 1 },
-      { name: 'b', segments: 2 },
+  it('hladiny výkresu s počty segmentů a textů, seřazené podle názvu', () => {
+    expect(
+      drawingLayers([{ layer: 'b' }, { layer: 'A' }, { layer: 'b' }], [{ layer: 'T' }]),
+    ).toEqual([
+      { name: 'A', segments: 1, texts: 0 },
+      { name: 'b', segments: 2, texts: 0 },
+      { name: 'T', segments: 0, texts: 1 },
     ]);
   });
 });

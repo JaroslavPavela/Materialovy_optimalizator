@@ -54,6 +54,8 @@ export interface AppState {
   readonly drawings: readonly LoadedDrawing[];
   /** Role hladin podle názvu (pamatují se); chybějící hladina = vnější obrys. */
   readonly layerRoles: LayerRoles;
+  /** Texty s dílem přenášet i z hladin obrysů (pamatuje se). */
+  readonly notesFromAllLayers: boolean;
   readonly projectReport: ProjectReport | null;
   /** Uložené formáty tabulí – sdílené mezi projekty. */
   readonly sheetLibrary: readonly Sheet[];
@@ -92,6 +94,8 @@ export interface AppActions {
   setLayerRole(layer: string, role: LayerRole): Promise<void>;
   /** Role hladin z úložiště (bez nového načtení výkresů). */
   setLayerRoles(roles: LayerRoles): void;
+  /** Přenášet texty i z hladin obrysů; znovu načte výkresy (`reload` = false: jen nastavit). */
+  setNotesFromAllLayers(value: boolean, reload?: boolean): Promise<void>;
   /** Nahradí zadání projektem (z úložiště nebo souboru); běžící výpočet zruší. */
   loadProject(project: Project): void;
   /** Načte projekt z textu JSON; při chybě zadání nezmění. */
@@ -183,6 +187,7 @@ const initialState: AppState = {
   dxfMode: 'single',
   drawings: [],
   layerRoles: new Map(),
+  notesFromAllLayers: false,
   projectReport: null,
   sheetLibrary: [],
   status: 'idle',
@@ -270,6 +275,7 @@ async function reimportDrawings(
           mode: d.mode,
           idPrefix: newId(d.kind),
           layerRoles: roles,
+          notesFromAllLayers: get().notesFromAllLayers,
         }),
       );
     }
@@ -393,8 +399,9 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   async importFiles(files) {
-    // Všechny soubory dávky se stejnými rolemi hladin.
+    // Všechny soubory dávky se stejnými rolemi hladin a volbou textů.
     const roles = get().layerRoles;
+    const notesFromAllLayers = get().notesFromAllLayers;
     /** Díly z prvního CSV dávky – nahradí seznam dílů. */
     let replacement: Part[] | null = null;
     const addedParts: Part[] = [];
@@ -408,6 +415,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
           mode,
           idPrefix: newId(drawing),
           layerRoles: roles,
+          notesFromAllLayers,
         });
         addedParts.push(...r.parts);
         addedDrawings.push({
@@ -451,8 +459,10 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
             importReports: reports,
           },
     );
-    // Role se během importu změnily – výkresy dávky mají staré: načíst znovu.
-    if (get().layerRoles !== roles) await reimportDrawings(get, set, get().layerRoles);
+    // Role nebo volba textů se během importu změnily – načíst znovu.
+    if (get().layerRoles !== roles || get().notesFromAllLayers !== notesFromAllLayers) {
+      await reimportDrawings(get, set, get().layerRoles);
+    }
   },
 
   async setLayerRole(layer, role) {
@@ -464,6 +474,12 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   setLayerRoles(roles) {
     set({ layerRoles: roles });
+  },
+
+  async setNotesFromAllLayers(value, reload = true) {
+    if (get().notesFromAllLayers === value) return;
+    set({ notesFromAllLayers: value });
+    if (reload) await reimportDrawings(get, set, get().layerRoles);
   },
 
   importCsv(fileName, data) {

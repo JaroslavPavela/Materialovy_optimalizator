@@ -6,6 +6,7 @@ import {
   type NestingParams,
   type Part,
   type PartMarks,
+  type PartNote,
   type PartShape,
   type ShapeLayers,
   type ShapeSegment,
@@ -138,13 +139,56 @@ class Reader {
     if (!outer || holes.some((h) => h === null)) return null;
     const layers = this.shapeLayers(v.layers, where);
     const marks = this.marks(v.marks, where);
-    if (layers === null || marks === null) return null;
+    const notes = this.notes(v.notes, where);
+    if (layers === null || marks === null || notes === null) return null;
     return {
       outer,
       holes: holes as Contour[],
       ...(layers && { layers }),
       ...(marks && { marks }),
+      ...(notes && { notes }),
     };
+  }
+
+  notes(v: unknown, where: string): PartNote[] | undefined | null {
+    if (v === undefined || v === null) return undefined;
+    const fail = () =>
+      this.fail(
+        where,
+        'textová poznámka musí mít hladinu, text, bod at, výšku, natočení, šířkový faktor a zarovnání.',
+      );
+    if (!Array.isArray(v)) return fail();
+    const out: PartNote[] = [];
+    for (const n of v) {
+      if (
+        !isObj(n) ||
+        typeof n.layer !== 'string' ||
+        typeof n.text !== 'string' ||
+        !isObj(n.at) ||
+        !isNum(n.at.x) ||
+        !isNum(n.at.y) ||
+        !isNum(n.height) ||
+        !isNum(n.rotation) ||
+        !isNum(n.widthFactor) ||
+        ![0, 1, 2].includes(n.halign as number) ||
+        ![0, 1, 2, 3].includes(n.valign as number) ||
+        typeof n.backwards !== 'boolean'
+      ) {
+        return fail();
+      }
+      out.push({
+        layer: n.layer,
+        text: n.text,
+        at: { x: n.at.x, y: n.at.y },
+        height: n.height,
+        rotation: n.rotation,
+        widthFactor: n.widthFactor,
+        halign: n.halign as PartNote['halign'],
+        valign: n.valign as PartNote['valign'],
+        backwards: n.backwards,
+      });
+    }
+    return out;
   }
 
   shapeLayers(v: unknown, where: string): ShapeLayers | undefined | null {
@@ -182,7 +226,11 @@ class Reader {
         ) {
           return fail();
         }
-        segments.push({ a: { x: g.a.x, y: g.a.y }, b: { x: g.b.x, y: g.b.y }, bulge: g.bulge ?? 0 });
+        segments.push({
+          a: { x: g.a.x, y: g.a.y },
+          b: { x: g.b.x, y: g.b.y },
+          bulge: g.bulge ?? 0,
+        });
       }
       out.push({ layer: m.layer, segments });
     }

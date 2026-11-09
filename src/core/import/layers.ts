@@ -37,19 +37,30 @@ export function layerRolesFromJson(v: unknown): Map<string, LayerRole> {
   return out;
 }
 
-/** Hladina s geometrií ve výkresu. */
+/** Hladina s geometrií nebo texty ve výkresu. */
 export interface DrawingLayer {
   readonly name: string;
   /** Počet segmentů (úseček a oblouků po rozložení entit). */
   readonly segments: number;
+  /** Počet textů (TEXT, MTEXT). */
+  readonly texts: number;
 }
 
-/** Hladiny se segmenty, seřazené podle názvu. */
-export function drawingLayers(segments: readonly { readonly layer: string }[]): DrawingLayer[] {
-  const count = new Map<string, number>();
-  for (const s of segments) count.set(s.layer, (count.get(s.layer) ?? 0) + 1);
+/** Hladiny se segmenty nebo texty, seřazené podle názvu. */
+export function drawingLayers(
+  segments: readonly { readonly layer: string }[],
+  texts: readonly { readonly layer: string }[] = [],
+): DrawingLayer[] {
+  const count = new Map<string, { segments: number; texts: number }>();
+  const at = (layer: string) => {
+    let c = count.get(layer);
+    if (!c) count.set(layer, (c = { segments: 0, texts: 0 }));
+    return c;
+  };
+  for (const s of segments) at(s.layer).segments++;
+  for (const t of texts) at(t.layer).texts++;
   return [...count]
-    .map(([name, n]) => ({ name, segments: n }))
+    .map(([name, c]) => ({ name, ...c }))
     .sort((a, b) => a.name.localeCompare(b.name, 'cs'));
 }
 

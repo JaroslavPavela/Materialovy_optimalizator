@@ -3,6 +3,7 @@ import { pointInRing, pointRingDistance, polygonBBox, rectToPolygon } from './ge
 import { placeContour, placePolygon, rotatePoint } from './geometry/transform.ts';
 import type { Contour, Point, Polygon, Rect, Ring } from './geometry/types.ts';
 import type { Part, PartShape, Placement, SheetLayout } from './model.ts';
+import { placeNote } from './notes.ts';
 
 /** Umístěný díl připravený k vykreslení nebo exportu, v souřadnicích tabule. */
 export interface PlacedPart {
@@ -118,7 +119,7 @@ export function partContours(part: Part): PartShape {
  * zůstává beze změny.
  */
 export function placedContours(part: Part, placement: Placement): PartShape {
-  const { outer, holes, layers, marks } = partContours(part);
+  const { outer, holes, layers, marks, notes } = partContours(part);
   const { rotation, x, y } = placement;
   const place = (p: Point) => {
     const r = rotatePoint(p, rotation);
@@ -134,5 +135,6 @@ export function placedContours(part: Part, placement: Placement): PartShape {
         segments: m.segments.map((s) => ({ a: place(s.a), b: place(s.b), bulge: s.bulge })),
       })),
     }),
+    ...(notes && { notes: notes.map((n) => placeNote(n, rotation, x, y)) }),
   };
 }

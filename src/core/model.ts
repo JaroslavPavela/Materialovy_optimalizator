@@ -29,6 +29,27 @@ export interface PartShape {
    * s dílem do náhledu a exportu, skládání ji nebere v úvahu.
    */
   readonly marks?: readonly PartMarks[];
+  /** Textové poznámky z výkresu (jeden řádek = jedna poznámka); skládání je nebere v úvahu. */
+  readonly notes?: readonly PartNote[];
+}
+
+/**
+ * Řádek textu přenesený s dílem – jako TEXT v DXF R12. Bod `at` podle
+ * zarovnání: `halign` 0 vlevo, 1 na střed, 2 vpravo; `valign` 0 účaří,
+ * 1 dole, 2 uprostřed, 3 nahoře. Výška = výška velkých písmen v mm,
+ * natočení ve stupních CCW.
+ */
+export interface PartNote {
+  readonly layer: string;
+  readonly text: string;
+  readonly at: Point;
+  readonly height: number;
+  readonly rotation: number;
+  readonly widthFactor: number;
+  readonly halign: 0 | 1 | 2;
+  readonly valign: 0 | 1 | 2 | 3;
+  /** Text pozpátku (zrcadlený podél své osy). */
+  readonly backwards: boolean;
 }
 
 export interface ShapeLayers {

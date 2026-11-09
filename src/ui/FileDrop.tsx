@@ -25,11 +25,16 @@ function LayerRolesTable() {
   const parts = useAppStore((s) => s.parts);
   const roles = useAppStore((s) => s.layerRoles);
   const setLayerRole = useAppStore((s) => s.setLayerRole);
+  const notesFromAll = useAppStore((s) => s.notesFromAllLayers);
+  const setNotesFromAll = useAppStore((s) => s.setNotesFromAllLayers);
   const layers = useMemo(() => {
-    const count = new Map<string, number>();
+    const count = new Map<string, { segments: number; texts: number }>();
     for (const d of drawings) {
       if (!drawingInUse(d, parts)) continue;
-      for (const l of d.layers) count.set(l.name, (count.get(l.name) ?? 0) + l.segments);
+      for (const l of d.layers) {
+        const c = count.get(l.name) ?? { segments: 0, texts: 0 };
+        count.set(l.name, { segments: c.segments + l.segments, texts: c.texts + l.texts });
+      }
     }
     return [...count].sort(([a], [b]) => a.localeCompare(b, 'cs'));
   }, [drawings, parts]);
@@ -43,14 +48,16 @@ function LayerRolesTable() {
           <tr>
             <th>Hladina</th>
             <th className="num">Segmentů</th>
+            <th className="num">Textů</th>
             <th>Použít jako</th>
           </tr>
         </thead>
         <tbody>
-          {layers.map(([name, segments]) => (
+          {layers.map(([name, count]) => (
             <tr key={name}>
               <td>{name}</td>
-              <td className="num">{segments}</td>
+              <td className="num">{count.segments}</td>
+              <td className="num">{count.texts}</td>
               <td>
                 <select
                   aria-label={`Role hladiny ${name}`}
@@ -68,10 +75,18 @@ function LayerRolesTable() {
           ))}
         </tbody>
       </table>
+      <label className="notes-option">
+        <input
+          type="checkbox"
+          checked={notesFromAll}
+          onChange={(e) => void setNotesFromAll(e.target.checked)}
+        />{' '}
+        Přenášet texty i z hladin obrysů
+      </label>
       <p className="muted hint">
-        Vnější obrys: otvory se poznají podle vnoření. Vnitřní obrys: kontury jsou jen otvory. Přidej
-        k dílu: geometrie (gravírování, ohyby) jede s dílem, skládání ji nebere v úvahu. Export DXF
-        zachová názvy hladin. Volba se pamatuje pro další výkresy.
+        Vnější obrys: otvory se poznají podle vnoření. Vnitřní obrys: kontury jsou jen otvory.
+        Přidej k dílu: geometrie (gravírování, ohyby) i texty jedou s dílem, skládání je nebere v
+        úvahu. Export DXF zachová názvy hladin. Volba se pamatuje pro další výkresy.
       </p>
     </fieldset>
   );

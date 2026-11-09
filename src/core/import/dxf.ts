@@ -34,15 +34,36 @@ export interface DxfUnits {
   readonly toMm: number;
 }
 
-/** Text výkresu (TEXT, MTEXT) – pro pojmenování dílů. */
+/**
+ * Řádek textu ve WCS jako TEXT v DXF R12: bod `at` podle zarovnání
+ * (`halign` 0 vlevo, 1 na střed, 2 vpravo; `valign` 0 účaří, 1 dole,
+ * 2 uprostřed, 3 nahoře), natočení ve stupních, výška velkých písmen v mm.
+ */
+export interface DxfTextLine {
+  readonly text: string;
+  readonly at: Point;
+  readonly rotation: number;
+  readonly height: number;
+  readonly widthFactor: number;
+  readonly halign: 0 | 1 | 2;
+  readonly valign: 0 | 1 | 2 | 3;
+  /** Text pozpátku (zrcadlený podél své osy). */
+  readonly backwards: boolean;
+}
+
+/** Text výkresu (TEXT, MTEXT) – pro pojmenování dílů a textové poznámky. */
 export interface DxfText {
-  /** Text bez formátovacích kódů. */
+  /** Text bez formátovacích kódů (řádky MTEXT spojené mezerou). */
   readonly text: string;
   /** Přibližný střed textu v mm (WCS). */
   readonly at: Point;
   /** Výška písma v mm. */
   readonly height: number;
   readonly layer: string;
+  /** Řádky s polohou – formátování MTEXT (písmo, barvy, zlomky…) se ztrácí. */
+  readonly lines: readonly DxfTextLine[];
+  /** MTEXT měl formátování, které se do řádků nepřeneslo. */
+  readonly formatted: boolean;
 }
 
 export interface DxfReadResult {
@@ -329,6 +350,8 @@ const MTextHandler = groupHandler('MTEXT', (g) => ({
     .join(''),
   rotation: valuesOf(g, 50)[0] ?? 0,
   attachmentPoint: valuesOf(g, 71)[0] ?? 1,
+  // Šířka rámečku (zalamování řádků); 0 = bez zalamování.
+  boxWidth: valuesOf(g, 41)[0] ?? 0,
 }));
 
 /** Bod ve tvaru {x, y, z} z parseru (210/220/230 u některých entit). */
@@ -542,11 +565,144 @@ function mtextCenter(e: Entity, raw: string, h: number, ocs: Affine): Point | nu
   };
 }
 
-/** TEXT nebo MTEXT → střed a výška v mm (WCS). */
+/**
+ * Řádek v souřadnicích textu (osa X podél textu, Y nahoru, jednotky výkresu)
+ * převedený do WCS transformací `m`: natočení podle obrazu osy X, výška podle
+ * zvětšení kolmo k ní, šířkový faktor podle poměru zvětšení. Zrcadlení
+ * (blok s mínus měřítkem) obrátí text pozpátku.
+ */
+function textLine(
+  m: Affine,
+  text: string,
+  at: Point,
+  h: number,
+  widthFactor: number,
+  halign: 0 | 1 | 2,
+  valign: 0 | 1 | 2 | 3,
+  backwards: boolean,
+): DxfTextLine | null {
+  const X = { x: m.a, y: m.b };
+  const sx = Math.hypot(X.x, X.y);
+  const det = affineDeterminant(m);
+  const sy = sx > 0 ? Math.abs(det) / sx : 0;
+  if (!(sx > 0) || !(sy > 0)) return null;
+  const p = applyAffine(m, at);
+  // Zrcadlení: TEXT s natočením θ a pozpátku je R(θ)·S(−1, 1), takže osa X
+  // textu se zobrazí na −(směr natočení) – natočení = úhel obrazu −X.
+  const flip = det < 0;
+  const rotation = (Math.atan2(flip ? -X.y : X.y, flip ? -X.x : X.x) * 180) / Math.PI;
+  const line = {
+    text,
+    at: p,
+    rotation: ((rotation % 360) + 360) % 360,
+    height: h * sy,
+    widthFactor: (widthFactor > 0 ? widthFactor : 1) * (sx / sy),
+    halign,
+    valign,
+    backwards: backwards !== flip,
+  };
+  return Number.isFinite(p.x) && Number.isFinite(p.y) && line.height > 0 ? line : null;
+}
+
+/** Řádky TEXT v souřadnicích OCS → WCS (zarovnání podle kódů 72/73). */
+function textLines(e: Entity, text: string, h: number, mo: Affine): DxfTextLine[] {
+  const p10 = isPoint(e.startPoint) ? e.startPoint : null;
+  const p11 = isPoint(e.endPoint) ? e.endPoint : null;
+  const ha = finite(e.halign, 0);
+  const va = finite(e.valign, 0);
+  let rot = finite(e.rotation, 0);
+  const gen = finite(e.generation, 0);
+  const wf = finite(e.widthFactor, 1);
+  let anchor = ha === 0 && va === 0 ? p10 : (p11 ?? p10);
+  let halign: 0 | 1 | 2 = ha === 1 || ha === 4 ? 1 : ha === 2 ? 2 : 0;
+  let valign: 0 | 1 | 2 | 3 = va === 1 || va === 2 || va === 3 ? va : 0;
+  if ((ha === 3 || ha === 5) && p10 && p11) {
+    // Zarovnaný / přizpůsobený text: na střed úsečky 10–11, na účaří;
+    // roztažení na délku úsečky se nepřenáší.
+    anchor = { x: (p10.x + p11.x) / 2, y: (p10.y + p11.y) / 2 };
+    rot = (Math.atan2(p11.y - p10.y, p11.x - p10.x) * 180) / Math.PI;
+    halign = 1;
+    valign = 0;
+  } else if (ha === 4) {
+    halign = 1;
+    valign = 2;
+  }
+  if (!anchor) return [];
+  // Vzhůru nohama = otočení o 180° a pozpátku.
+  const upside = (gen & 4) !== 0;
+  const frame = compose(mo, translation(anchor.x, anchor.y), rotation(upside ? rot + 180 : rot));
+  const line = textLine(
+    frame,
+    text,
+    { x: 0, y: 0 },
+    h,
+    wf,
+    halign,
+    valign,
+    ((gen & 2) !== 0) !== upside,
+  );
+  return line ? [line] : [];
+}
+
+/** Řádky MTEXT: bod připojení 1–9, řádky po rozteči LINE_SPACING, zarovnání nahoru. */
+function mtextLinesAt(e: Entity, raw: string, h: number, ocs: Affine, m: Affine): DxfTextLine[] {
+  if (!isPoint(e.position)) return [];
+  const box = finite(e.boxWidth, 0);
+  const lines = mtextLines(raw).flatMap((l) => wrapLine(plainDxfText(l, true), box, h));
+  const a = Math.min(9, Math.max(1, Math.round(finite(e.attachmentPoint, 1))));
+  const col = (a - 1) % 3;
+  const row = Math.floor((a - 1) / 3);
+  const r = (finite(e.rotation, 0) * Math.PI) / 180;
+  let X = isPoint(e.direction) ? e.direction : applyAffine(ocs, { x: Math.cos(r), y: Math.sin(r) });
+  const len = Math.hypot(X.x, X.y);
+  if (!(len > 0)) return [];
+  X = { x: X.x / len, y: X.y / len };
+  const s = extrusionOf(e).z < 0 ? -1 : 1;
+  const frame = compose(m, {
+    a: X.x,
+    b: X.y,
+    c: -s * X.y,
+    d: s * X.x,
+    e: e.position.x,
+    f: e.position.y,
+  });
+  const H = h + (lines.length - 1) * h * LINE_SPACING;
+  const top = row === 0 ? 0 : row === 1 ? H / 2 : H;
+  const halign = col as 0 | 1 | 2;
+  const out: DxfTextLine[] = [];
+  lines.forEach((text, i) => {
+    if (!text) return;
+    const at = { x: 0, y: top - i * h * LINE_SPACING };
+    const line = textLine(frame, text, at, h, 1, halign, 3, false);
+    if (line) out.push(line);
+  });
+  return out;
+}
+
+/**
+ * Řádek MTEXT zalomený podle šířky rámečku (`width` > 0) s odhadem šířky
+ * znaku CHAR_WIDTH × výška – po slovech, příliš dlouhé slovo zůstane celé.
+ */
+function wrapLine(text: string, width: number, h: number): string[] {
+  const max = width > 0 ? Math.max(1, Math.floor(width / (CHAR_WIDTH * h))) : Infinity;
+  if (text.length <= max) return [text];
+  const out: string[] = [];
+  let cur = '';
+  for (const word of text.split(' ')) {
+    if (cur && cur.length + 1 + word.length > max) {
+      out.push(cur);
+      cur = word;
+    } else cur = cur ? `${cur} ${word}` : word;
+  }
+  out.push(cur);
+  return out;
+}
+
+/** TEXT nebo MTEXT → střed, výška a řádky v mm (WCS). */
 function addText(e: Entity, m: Affine, out: Collector, layer: string) {
   if (out.texts.length >= MAX_TEXTS) {
     out.warnOnce(
-      `Výkres má víc než ${MAX_TEXTS.toLocaleString('cs-CZ')} textů – další se pro názvy dílů nepoužijí.`,
+      `Výkres má víc než ${MAX_TEXTS.toLocaleString('cs-CZ')} textů – další se nepoužijí (názvy dílů, poznámky).`,
     );
     return;
   }
@@ -564,7 +720,10 @@ function addText(e: Entity, m: Affine, out: Collector, layer: string) {
   const at = applyAffine(mo, local);
   const height = h * Math.sqrt(Math.abs(affineDeterminant(mo)));
   if (!Number.isFinite(at.x) || !Number.isFinite(at.y) || !(height > 0)) return;
-  out.texts.push({ text, at, height, layer });
+  const lines = mtext ? mtextLinesAt(e, raw, h, ocs, m) : textLines(e, text, h, mo);
+  // Formátování MTEXT kromě zalomení řádků (\P) a escapovaných znaků.
+  const formatted = mtext && /\\[^PUX~\\{}]|[{}]/.test(raw.replace(/\\[\\{}]/g, ''));
+  out.texts.push({ text, at, height, layer, lines, formatted });
 }
 
 /** Vzdálenost bodu od úsečky. */

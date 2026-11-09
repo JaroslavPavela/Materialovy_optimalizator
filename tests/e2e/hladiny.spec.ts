@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import DxfParser from 'dxf-parser';
 import { expect, test, type Page } from '@playwright/test';
-import { circle, dxf, line, rectPoly } from '../core/import/dxf-builder.ts';
+import { circle, dxf, ent, line, rectPoly } from '../core/import/dxf-builder.ts';
 
 /**
  * Deska 300 × 150 (OBRYS) s kruhovým otvorem (DIRY), ohybem přes celý díl
@@ -73,5 +73,46 @@ test('hladiny výkresu: volba rolí → plán → export DXF s původními hladi
   await expect(report(page)).toHaveText(/^deska\.dxf: načteno 1 dílů\.$/);
   await expect(page.getByLabel('Role hladiny OHYB')).toHaveValue('attach');
   await expect(page.getByLabel('Role hladiny DIRY')).toHaveValue('inner');
+  expect(errors).toEqual([]);
+});
+
+test('textové poznámky: hladina jen s texty → přidej k dílu → náhled a export DXF s TEXT', async ({
+  page,
+}, testInfo) => {
+  const errors = collectErrors(page);
+  const withNotes = dxf({
+    entities: [
+      rectPoly(0, 0, 300, 150, [8, 'OBRYS']),
+      ent('TEXT', [8, 'POZN'], [10, 20], [20, 20], [30, 0], [40, 8], [1, 'S235 tl.3']),
+      ent('TEXT', [8, 'OBRYS'], [10, 20], [20, 100], [30, 0], [40, 6], [1, 'Z OBRYSU']),
+    ],
+  });
+  await page.goto('/');
+  await page.getByLabel('Soubory s díly').setInputFiles({
+    name: 'poznamky.dxf',
+    mimeType: 'application/dxf',
+    buffer: Buffer.from(withNotes),
+  });
+  // Hladina jen s texty je v seznamu hladin.
+  await expect(page.getByLabel('Role hladiny POZN')).toHaveValue('outer');
+  await page.getByLabel('Role hladiny POZN').selectOption({ label: 'přidej k dílu' });
+  await page.getByLabel('Přenášet texty i z hladin obrysů').check();
+
+  await page.getByRole('button', { name: 'Vypočítat' }).click();
+  const plan = page.getByRole('img', { name: /Plán tabule/ });
+  await expect(plan.locator('text.part-note')).toHaveText(['S235 tl.3', 'Z OBRYSU']);
+
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: /^DXF tabule 1/ }).click();
+  const path = testInfo.outputPath('poznamky.dxf');
+  await (await pending).saveAs(path);
+  const parsed = new DxfParser().parseSync(readFileSync(path, 'latin1'))!;
+  const texts = parsed.entities
+    .filter((e) => e.type === 'TEXT' && e.layer !== 'POPISKY')
+    .map((e) => [e.layer, (e as unknown as { text: string }).text]);
+  expect(texts).toEqual([
+    ['POZN', 'S235 tl.3'],
+    ['OBRYS', 'Z OBRYSU'],
+  ]);
   expect(errors).toEqual([]);
 });
