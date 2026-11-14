@@ -189,7 +189,7 @@ Viz CLAUDE.md (jednotky, osy, orientace kontur, EPS, struktura složek).
 ## Stav
 
 Aktuální krok: hotovo (všechny kroky odškrtnuty)
-Poslední commit: feat: chyby importu výkresů v modálním okně (krok 8.7)
+Poslední commit: fix: opravy z code-review (po kroku 8.7)
 BLOKOVÁNO: ne
 
 ## Odchylky
