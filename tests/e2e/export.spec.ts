@@ -118,7 +118,11 @@ test('výpočet → SVG tabule, ZIP SVG a tisk do PDF (strana na tabuli)', async
   await page.evaluate((html) => document.body.insertAdjacentHTML('beforeend', html), printed);
   await page.emulateMedia({ media: 'print' });
   await expect(page.locator('#root')).toBeHidden();
+  // Tisk z nabídky prohlížeče (Ctrl+P) si tiskovou podobu vytvoří sám (beforeprint)
+  // a po tisku ji odebere – ručně vložená kopie by stránky zdvojila.
+  await page.evaluate(() => document.querySelector('body > .print-root')?.remove());
   const pdf = await page.pdf({ preferCSSPageSize: true });
+  await expect(page.locator('.print-root')).toHaveCount(0);
   const pages = pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? [];
   expect(pages).toHaveLength(sheets + 1);
 

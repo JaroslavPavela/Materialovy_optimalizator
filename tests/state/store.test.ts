@@ -505,4 +505,144 @@ describe('store', () => {
     state().saveRemnants();
     expect(state().sheets.some((s) => s.id === usedId)).toBe(false);
   });
+
+  it('zbytky nejdou uložit za běhu výpočtu a průběžné plány téhož běhu je nezdvojí', async () => {
+    addPart();
+    let finish: () => void = () => {};
+    let progress: () => void = () => {};
+    setNestingClient({
+      ...syncClient,
+      nest: (input, onProgress) =>
+        new Promise((resolve) => {
+          const outcome = nest(input);
+          if (!outcome.ok) throw new Error('neplatný vstup');
+          // Každý průběžný plán je nový objekt, jako po přenosu z workeru.
+          progress = () =>
+            onProgress?.({ step: 1, totalSteps: 2, fraction: 0.5, best: { ...outcome.result } });
+          finish = () => resolve(outcome);
+        }),
+    });
+    const running = state().calculate();
+    progress();
+    expect(state().result).not.toBeNull();
+    expect(state().saveRemnants()).toBe(0);
+    expect(state().sheets).toHaveLength(1);
+    finish();
+    await running;
+    expect(state().saveRemnants()).toBe(1);
+    expect(state().saveRemnants()).toBe(0);
+    expect(state().sheets).toHaveLength(2);
+  });
+
+  it('průběh a výsledek zrušeného výpočtu se do nově načteného projektu nezapíšou', async () => {
+    addPart();
+    let progress: () => void = () => {};
+    let finish: () => void = () => {};
+    setNestingClient({
+      ...syncClient,
+      nest: (input, onProgress) =>
+        new Promise((resolve) => {
+          const outcome = nest(input);
+          if (!outcome.ok) throw new Error('neplatný vstup');
+          progress = () =>
+            onProgress?.({ step: 1, totalSteps: 2, fraction: 0.5, best: outcome.result });
+          finish = () => resolve(outcome);
+        }),
+    });
+    const running = state().calculate();
+    state().loadProject({ parts: [], sheets: [TEST_SHEET], params: DEFAULT_NESTING_PARAMS });
+    progress();
+    expect(state().result).toBeNull();
+    expect(state().progress).toBeNull();
+    finish();
+    await running;
+    expect(state()).toMatchObject({ status: 'idle', result: null, resultInput: null });
+  });
+
+  it('import: výkres před CSV v dávce zůstane, selhání jednoho výkresu nezahodí ostatní', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    const plate = enc(dxf({ entities: [rectPoly(0, 0, 200, 100)] }));
+    addPart();
+    await state().importFiles([
+      { name: 'plech.dxf', data: plate },
+      { name: 'utf8-bom.csv', data: fixture('utf8-bom.csv') },
+    ]);
+    // CSV nahradil ručně přidaný díl, výkres ze stejné dávky se přidal za něj.
+    expect(state().parts.at(-1)).toMatchObject({ name: 'plech' });
+    expect(state().parts.filter((p) => p.shape)).toHaveLength(1);
+    expect(state().parts.some((p) => p.id.startsWith('dil-'))).toBe(false);
+    expect(state().drawings.map((d) => d.fileName)).toEqual(['plech.dxf']);
+    expect(state().importReports.map((r) => r.kind)).toEqual(['csv', 'dxf']);
+
+    setNestingClient({
+      ...syncClient,
+      importDrawing: (name, d, opts) =>
+        name === 'vadny.dxf'
+          ? Promise.reject(new Error('worker spadl'))
+          : syncClient.importDrawing(name, d, opts),
+    });
+    const before = state().parts.length;
+    await state().importFiles([
+      { name: 'vadny.dxf', data: plate },
+      { name: 'dobry.dxf', data: plate },
+    ]);
+    expect(state().parts).toHaveLength(before + 1);
+    expect(state().importReports).toMatchObject([
+      { fileName: 'vadny.dxf', partCount: 0, errors: ['Načtení výkresu selhalo: worker spadl'] },
+      { fileName: 'dobry.dxf', partCount: 1, errors: [] },
+    ]);
+  });
+
+  it('import rozběhnutý před načtením jiného projektu se do něj nepřidá', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    const plate = enc(dxf({ entities: [rectPoly(0, 0, 200, 100)] }));
+    let release: () => void = () => {};
+    setNestingClient({
+      ...syncClient,
+      importDrawing: (name, d, opts) =>
+        new Promise((resolve) => {
+          release = () => resolve(createNestingService().importDrawing(name, d, opts));
+        }),
+    });
+    const pending = state().importFiles([{ name: 'plech.dxf', data: plate }]);
+    state().loadProject({ parts: [], sheets: [TEST_SHEET], params: DEFAULT_NESTING_PARAMS });
+    release();
+    await pending;
+    expect(state()).toMatchObject({ parts: [], drawings: [], importReports: [] });
+
+    // Worker ukončený zrušením výpočtu: import skončí tiše, bez chyby.
+    setNestingClient({
+      ...syncClient,
+      importDrawing: () => Promise.reject(new NestingAbortedError()),
+    });
+    await expect(
+      state().importFiles([{ name: 'plech.dxf', data: plate }]),
+    ).resolves.toBeUndefined();
+    expect(state()).toMatchObject({ parts: [], importReports: [] });
+  });
+
+  it('nové načtení výkresů zachová hlášení CSV; výkres bez dílů v zadání se uvolní', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t).buffer as ArrayBuffer;
+    state().setDxfMode('multi');
+    await state().importFiles([
+      { name: 'utf8-bom.csv', data: fixture('utf8-bom.csv') },
+      {
+        name: 'dva.dxf',
+        data: enc(
+          dxf({
+            entities: [rectPoly(0, 0, 200, 100, [8, 'A']), rectPoly(300, 0, 50, 50, [8, 'A'])],
+          }),
+        ),
+      },
+    ]);
+    await state().setLayerRole('A', 'outer');
+    expect(state().importReports.map((r) => r.kind)).toEqual(['csv', 'dxf']);
+
+    const fromDrawing = state().parts.filter((p) => p.shape);
+    expect(fromDrawing).toHaveLength(2);
+    state().removePart(fromDrawing[0]!.id);
+    expect(state().drawings).toHaveLength(1);
+    state().removeParts([fromDrawing[1]!.id]);
+    expect(state().drawings).toEqual([]);
+  });
 });

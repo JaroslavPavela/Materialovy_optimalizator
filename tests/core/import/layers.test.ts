@@ -193,7 +193,7 @@ describe('partsFromDxf – role hladin', () => {
     expect(r.parts).toHaveLength(1);
     expect(r.parts[0]!.shape!.marks).toBeUndefined();
     expect(r.warnings).toEqual([
-      'Na hladině „KOTY" (přidej k dílu) leží 1 segmentů mimo obrysy dílů – ignorovány.',
+      'Na hladině „KOTY" (přidej k dílu) leží 1 segment mimo obrysy dílů – ignorován.',
     ]);
   });
 
@@ -301,7 +301,7 @@ describe('role hladin – případy z revize', () => {
       { layer: 'GRAVIR', segments: [{ a: { x: 10, y: 10 }, b: { x: 90, y: 10 }, bulge: 0 }] },
     ]);
     expect(r.warnings).toContain(
-      'Na hladině „GRAVIR" (přidej k dílu) leží 1 segmentů mimo obrysy dílů – ignorovány.',
+      'Na hladině „GRAVIR" (přidej k dílu) leží 1 segment mimo obrysy dílů – ignorován.',
     );
   });
 
@@ -341,7 +341,7 @@ describe('role hladin – případy z revize', () => {
     );
     expect(r.parts[0]!.shape!.marks).toBeUndefined();
     expect(r.warnings).toContain(
-      'Na hladině „GRAVIR" (přidej k dílu) leží 1 segmentů mimo obrysy dílů – ignorovány.',
+      'Na hladině „GRAVIR" (přidej k dílu) leží 1 segment mimo obrysy dílů – ignorován.',
     );
   });
 

@@ -4,7 +4,7 @@ import { labelSize } from '../core/placed.ts';
 import type { Part, Sheet, SheetLayout, SheetMetrics } from '../core/model.ts';
 import { sheetNumbersText } from '../core/sheet-groups.ts';
 import { useAppStore } from '../state/store.ts';
-import { formatNumber, formatPercent } from './format.ts';
+import { formatNumber, formatPercent, plural } from './format.ts';
 import { useSheetGroups } from './useSheetGroups.ts';
 
 /** Výřez SVG v souřadnicích zobrazení (mm, osa Y dolů). */
@@ -285,12 +285,12 @@ function SheetOverview({
           <li key={c.key}>
             <button
               type="button"
-              className={c.active ? 'sheet-card active' : 'sheet-card'}
+              className={c.active ? 'overview-card active' : 'overview-card'}
               aria-label={`Otevřít tabuli ${c.name}`}
               title={c.numbers}
               onClick={c.open}
             >
-              <span className="sheet-card-title">
+              <span className="overview-card-title">
                 <span>
                   {c.name} <span className="muted">{c.detail}</span>
                 </span>
@@ -311,7 +311,8 @@ function SheetOverview({
           className="overview-more"
           onClick={() => setShown((n) => n + OVERVIEW_PAGE)}
         >
-          Zobrazit dalších {Math.min(rest, OVERVIEW_PAGE)} (zbývá {rest})
+          Zobrazit {plural(Math.min(rest, OVERVIEW_PAGE), 'další', 'další', 'dalších')}{' '}
+          {Math.min(rest, OVERVIEW_PAGE)} (zbývá {rest})
         </button>
       )}
     </>
@@ -347,6 +348,7 @@ export function PlanView() {
 
   const count = groups.length;
   const multiple = result.layouts.length > 1;
+  const sheetCount = `${result.layouts.length} ${plural(result.layouts.length, 'tabule', 'tabule', 'tabulí')}`;
   const overview = multiple && planView === 'all';
   const layoutIndex = groups[index]!.indices[0]!;
   const layout = result.layouts[layoutIndex]!;
@@ -398,8 +400,8 @@ export function PlanView() {
           </label>
           <span className="muted">
             {grouped && count < result.layouts.length
-              ? `${result.layouts.length} tabulí, různých: ${count}`
-              : `${result.layouts.length} tabulí`}
+              ? `${sheetCount}, různých: ${count}`
+              : sheetCount}
           </span>
         </div>
       )}
@@ -488,7 +490,8 @@ export function PlanView() {
           )}
           {sheet ? (
             <SheetSvg
-              key={`${layoutIndex}-${sheet.id}`}
+              // Jiná tabule nebo jiný rozměr téže tabule začne s celým výřezem.
+              key={`${layoutIndex}-${sheet.id}-${sheet.width}x${sheet.height}`}
               sheet={sheet}
               layout={layout}
               metrics={result.metrics.sheets[layoutIndex]}

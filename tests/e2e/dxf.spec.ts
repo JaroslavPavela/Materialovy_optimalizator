@@ -20,10 +20,10 @@ test('DXF → plán se skutečnými tvary → export DXF se stejnými díly', as
     .getByLabel('Soubory s díly')
     .setInputFiles([fixture('dil-s-otvory.dxf'), fixture('spline.dxf')]);
   await expect(page.getByRole('status').filter({ hasText: 'dil-s-otvory.dxf' })).toContainText(
-    'načteno 1 dílů',
+    'načten 1 díl',
   );
   await expect(page.getByRole('status').filter({ hasText: 'spline.dxf' })).toContainText(
-    'načteno 1 dílů',
+    'načten 1 díl',
   );
   // Rozměry dílů z DXF jsou jen ke čtení.
   await expect(page.getByLabel('Šířka dílu 1')).toHaveText('400');
@@ -87,7 +87,7 @@ test('DXF s chybami ukáže hlášení a platné díly použije', async ({ page 
   await page.goto('/');
   await page.getByLabel('Soubory s díly').setInputFiles(fixture('neuzavrena.dxf'));
   const report = page.getByRole('status').filter({ hasText: 'neuzavrena.dxf' });
-  await expect(report).toContainText('načteno 1 dílů, 1 chyb');
+  await expect(report).toContainText('načten 1 díl, 1 chyba');
   // Chyby v modálním okně, které se po importu otevře samo.
   const dialog = page.getByRole('dialog', { name: 'Hlášení importu výkresů' });
   await expect(dialog).toBeVisible();

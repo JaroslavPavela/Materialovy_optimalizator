@@ -62,10 +62,16 @@ const normDeg = (deg: number) => {
 };
 
 /**
- * Text TEXT jako v R12 (`dxfText`): „%" jako „%%%" (jinak by „%%d" byl znak
+ * Text TEXT jako v R12 (`dxfText`): řídicí znaky jako mezera, „%" jako „%%%" (jinak by „%%d" byl znak
  * stupně) a „\" jako \U+005C (jinak by „\U+0041" čtečka převedla na znak).
  */
-const textValue = (text: string) => text.replace(/%/g, '%%%').replace(/\\/g, '\\U+005C');
+const textValue = (text: string) =>
+  text
+    // Řídicí znaky (tabulátor, konec řádku) by acad-ts zapsal jako „^I", „^J".
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/%/g, '%%%')
+    .replace(/\\/g, '\\U+005C');
 
 /** Prvek výkresu jako entita acad-ts (null = nic k zápisu). */
 function toEntity(item: SheetItem): Entity | null {

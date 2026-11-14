@@ -19,6 +19,10 @@ const render = () =>
 initPersistence(createDexieStorage())
   .then((persistence) => {
     window.addEventListener('pagehide', () => void persistence.flush());
+    // Na mobilu a při zavření panelu `pagehide` nemusí přijít – ukládat už při skrytí.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') void persistence.flush();
+    });
   })
   .catch((e: unknown) => console.warn('Úložiště není dostupné, projekt se nebude ukládat:', e))
   .finally(render);

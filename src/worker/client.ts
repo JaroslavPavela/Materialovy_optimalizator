@@ -44,14 +44,29 @@ export function createNestingClient(): NestingClient {
         .then(resolve, reject)
         .finally(() => pending.delete(reject));
     });
-  const rejectPending = () => {
-    for (const reject of pending) reject(new NestingAbortedError());
+  /** Odmítne běžící výpočet i čekající import a export. */
+  const rejectAll = (error: () => Error) => {
+    rejectRunning?.(error());
+    rejectRunning = null;
+    for (const reject of pending) reject(error());
     pending.clear();
   };
 
   const start = () => {
-    worker = new Worker(new URL('./nesting.worker.ts', import.meta.url), { type: 'module' });
-    remote = Comlink.wrap<NestingService>(worker);
+    const w = new Worker(new URL('./nesting.worker.ts', import.meta.url), { type: 'module' });
+    // Pád workeru (nenačtený skript, nedostatek paměti, nepřenositelná zpráva)
+    // by jinak nechal volání čekat navždy: odmítnout je a založit nový worker.
+    const crashed = (e: Event) => {
+      if (w !== worker) return;
+      const detail = e instanceof ErrorEvent && e.message ? ` (${e.message})` : '';
+      w.terminate();
+      rejectAll(() => new Error(`Výpočetní vlákno selhalo${detail}. Zkuste akci zopakovat.`));
+      start();
+    };
+    w.addEventListener('error', crashed);
+    w.addEventListener('messageerror', crashed);
+    worker = w;
+    remote = Comlink.wrap<NestingService>(w);
   };
   start();
 
@@ -78,16 +93,12 @@ export function createNestingClient(): NestingClient {
     },
     abort() {
       worker.terminate();
-      rejectRunning?.(new NestingAbortedError());
-      rejectRunning = null;
-      rejectPending();
+      rejectAll(() => new NestingAbortedError());
       start();
     },
     dispose() {
       worker.terminate();
-      rejectRunning?.(new NestingAbortedError());
-      rejectRunning = null;
-      rejectPending();
+      rejectAll(() => new NestingAbortedError());
     },
   };
 }

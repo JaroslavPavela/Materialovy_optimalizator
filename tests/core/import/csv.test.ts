@@ -407,3 +407,46 @@ describe('hlavička vs. díl pojmenovaný jako sloupec (revize 7.1)', () => {
     expect(r.parts).toHaveLength(1);
   });
 });
+
+describe('případy z code-review', () => {
+  it('uvozovka na začátku názvu nespolkne další řádky', () => {
+    const r = parsePartsCsv(
+      enc(
+        'název;šířka;výška;počet\n"L" profil;100;200;2\nDno;300;400;1\n"Bok levý;50;60;3\nVíko;10;20;4\n',
+      ),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.parts.map((p) => [p.id, p.name, p.width, p.height, p.quantity])).toEqual([
+      ['csv-2', '"L" profil', 100, 200, 2],
+      ['csv-3', 'Dno', 300, 400, 1],
+      ['csv-4', '"Bok levý', 50, 60, 3],
+      ['csv-5', 'Víko', 10, 20, 4],
+    ]);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]!.row).toBe(2);
+    expect(r.warnings[0]!.message).toMatch(/uvozovka/);
+  });
+
+  it('správně uzavřené uvozovky se dál zpracují bez varování', () => {
+    const r = parsePartsCsv(enc('název;šířka;výška;počet\n"Bok; levý";100;200;2\n'));
+    expect(r.warnings).toEqual([]);
+    expect(r.parts.map((p) => p.name)).toEqual(['Bok; levý']);
+  });
+
+  it('řádek „sep=" z Excelu určí oddělovač a nepočítá se jako hlavička', () => {
+    const r = parsePartsCsv(
+      enc('sep=;\r\nnázev;šířka;výška;počet\r\nDno;300;400;1\r\nx;a;1;1\r\n'),
+    );
+    expect(r.delimiter).toBe(';');
+    expect(r.parts.map((p) => [p.id, p.name, p.width, p.height, p.quantity])).toEqual([
+      ['csv-3', 'Dno', 300, 400, 1],
+    ]);
+    expect(r.errors.map((e) => e.row)).toEqual([4]);
+    // Oddělovač ze „sep=" má přednost před odhadem z dat.
+    const comma = parsePartsCsv(enc('SEP=,\nnazev,sirka,vyska,pocet\nA;B,1,2,3\n'));
+    expect(comma.delimiter).toBe(',');
+    expect(comma.parts.map((p) => [p.name, p.width, p.height, p.quantity])).toEqual([
+      ['A;B', 1, 2, 3],
+    ]);
+  });
+});

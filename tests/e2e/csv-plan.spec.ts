@@ -24,7 +24,7 @@ for (const name of [
 
     await page.getByLabel('Soubory s díly').setInputFiles(fixture(name));
     const report = page.getByRole('status').filter({ hasText: name });
-    await expect(report).toContainText(/načteno [1-9]\d* dílů/);
+    await expect(report).toContainText(/(načten 1 díl|načteny [2-4] díly|načteno [1-9]\d* dílů)/);
     await expect(report).not.toContainText('chyb');
 
     await page.getByRole('button', { name: 'Vypočítat' }).click();

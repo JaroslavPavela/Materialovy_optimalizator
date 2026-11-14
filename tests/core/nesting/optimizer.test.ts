@@ -97,6 +97,26 @@ describe('optimizeShapes', () => {
     expect(runAll(input(7)).best).toEqual(runAll(input(7)).best);
   });
 
+  it('shodní jedinci (zaměnitelné kusy téhož dílu) se skládají jen jednou', () => {
+    const inp: NestingInput = {
+      ...input(),
+      parts: [{ ...lPart('l', 5), rotation: 'locked' }],
+    };
+    const gen = optimizeShapes(new ShapeContext(inp), { maxGenerations: 4, populationSize: 6 });
+    let ticksAfterFirst = 0;
+    let evaluated = 0;
+    let next = gen.next();
+    while (!next.done) {
+      if (next.value.evaluated) evaluated++;
+      else if (evaluated > 0) ticksAfterFirst++;
+      next = gen.next();
+    }
+    // Všechna pořadí pěti stejných kusů dají stejný plán: skládá jen první jedinec.
+    expect(ticksAfterFirst).toBe(0);
+    expect(evaluated).toBe(6 + 4 * 5);
+    expect(next.value).toEqual(placeShapes(new ShapeContext(inp), defaultShapeOrder(inp)));
+  });
+
   it('jeden kus: bez generací, jen výchozí jedinec a jeho mutace', () => {
     const inp: NestingInput = { ...input(), parts: [lPart('l', 1)] };
     const { steps } = runAll(inp);

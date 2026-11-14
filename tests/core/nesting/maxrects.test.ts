@@ -410,3 +410,49 @@ describe('výkon', () => {
     expect(ms).toBeLessThan(15000);
   });
 });
+
+describe('případy z code-review', () => {
+  it('rozměry posunuté o zlomky EPS: tolerance uložení a překryvu se nesečtou na EPS', () => {
+    const inp: NestingInput = {
+      parts: [part('a', 100.0009, 150.0008, 12)],
+      sheets: [sheet({ width: 400, height: 200.0009 })],
+      params: { ...DEFAULT_NESTING_PARAMS, spacing: 0 },
+    };
+    for (const h of RECT_HEURISTICS) {
+      for (const o of PART_ORDERS) {
+        expect(rectInvariantViolations(inp, packRects(inp, h, o))).toEqual([]);
+      }
+    }
+  });
+
+  it('property: díly a tabule s rozměry těsně kolem násobků (± zlomky EPS)', () => {
+    const eps = fc.integer({ min: -12, max: 12 }).map((k) => k * 1e-4);
+    const dim = fc.tuple(fc.integer({ min: 1, max: 8 }), eps).map(([n, e]) => n * 50 + e);
+    const arb = fc
+      .record({
+        parts: fc.array(fc.tuple(dim, dim, fc.integer({ min: 1, max: 6 })), {
+          minLength: 1,
+          maxLength: 4,
+        }),
+        w: dim,
+        h: dim,
+        spacing: fc.constantFrom(0, 0.0005, 3),
+      })
+      .map(({ parts, w, h, spacing }): NestingInput => ({
+        parts: parts.map(([pw, ph, q], i) => part(`p${i}`, pw, ph, q)),
+        sheets: [sheet({ width: w + 200, height: h + 200 })],
+        params: { ...DEFAULT_NESTING_PARAMS, spacing },
+      }));
+    fc.assert(
+      fc.property(
+        arb,
+        fc.constantFrom(...RECT_HEURISTICS),
+        fc.constantFrom(...PART_ORDERS),
+        (inp, h, o) => {
+          expect(rectInvariantViolations(inp, packRects(inp, h, o))).toEqual([]);
+        },
+      ),
+      { numRuns: 400, seed: 20261113 },
+    );
+  });
+});

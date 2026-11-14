@@ -52,6 +52,13 @@ soubor se čte jako `název; šířka; výška; počet` a volitelně dál
 
 - Oddělovač se rozpozná sám: středník `;`, čárka `,` nebo tabulátor.
   Vybere se ten, který dává na prvních řádcích stejný počet sloupců.
+  Začíná-li soubor řádkem `sep=;` (tak Excel označuje oddělovač), použije
+  se oddělovač z něj a řádek se nebere jako data.
+- Pole s oddělovačem nebo koncem řádku uvnitř patří do uvozovek (`"…"`),
+  uvozovka v poli se zdvojí. Je-li v souboru uvozovka neuzavřená nebo
+  chybně umístěná (např. `Deska 19"`), načte se soubor znovu bez
+  zpracování uvozovek – uvozovky zůstanou v textu a import to oznámí
+  varováním s číslem řádku.
 - Desetinná čárka i tečka (`12,5` i `12.5`). Mezery jako oddělovač tisíců
   jsou povolené (`1 250,5`). Pokud je oddělovač čárka, desetinná čísla
   s čárkou musí být v uvozovkách (`"12,5"`).

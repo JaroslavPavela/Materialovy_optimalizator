@@ -77,11 +77,20 @@ export function zoneObstacles(sheet: Sheet, spacing: number): Rect[] {
   });
 }
 
+/**
+ * Zásah do volného obdélníku menší než FIT (mm) se nepočítá. Díl větší než
+ * volný obdélník o ≤ EPS se ukládá souměrně (přesah ≤ EPS/2 na stranu),
+ * dohromady tedy nejvýš 0,75 · EPS – s celým EPS u obou se chyby sečetly
+ * přesně na EPS a šum v plovoucí čárce invariant „vzdálenost ≥ rozestup − EPS"
+ * přestřelil.
+ */
+const FIT = EPS / 4;
+
 const overlaps = (a: Rect, b: Rect) =>
-  a.x < b.x + b.width - EPS &&
-  b.x < a.x + a.width - EPS &&
-  a.y < b.y + b.height - EPS &&
-  b.y < a.y + a.height - EPS;
+  a.x < b.x + b.width - FIT &&
+  b.x < a.x + a.width - FIT &&
+  a.y < b.y + b.height - FIT &&
+  b.y < a.y + a.height - FIT;
 
 const contains = (outer: Rect, inner: Rect) =>
   inner.x >= outer.x - EPS &&
@@ -136,7 +145,9 @@ export class MaxRectsBin {
   find(w: number, h: number, allowRotate: boolean, heuristic: RectHeuristic): Candidate | null {
     let best: Candidate | null = null;
     const variants: [number, number, boolean][] = [[w, h, false]];
-    if (allowRotate && Math.abs(w - h) > EPS) variants.push([h, w, true]);
+    // I rozdíl stran pod EPS rozhoduje u dílu přesně na míru (250,0002 × 250,0011
+    // se na 250,0001 × 250 vejde jen otočený); při shodě skóre vyhraje neotočený.
+    if (allowRotate && Math.abs(w - h) > 0) variants.push([h, w, true]);
     for (const f of this.free) {
       for (const [vw, vh, rotated] of variants) {
         if (vw > f.width + EPS || vh > f.height + EPS) continue;
@@ -146,7 +157,10 @@ export class MaxRectsBin {
           s1 < best.score1 - EPS ||
           (Math.abs(s1 - best.score1) <= EPS && s2 < best.score2 - EPS)
         ) {
-          best = { x: f.x, y: f.y, width: vw, height: vh, rotated, score1: s1, score2: s2 };
+          // Díl přesně na míru o zlomek EPS větší: přesah souměrně na obě strany.
+          const x = f.x - Math.max(0, vw - f.width) / 2;
+          const y = f.y - Math.max(0, vh - f.height) / 2;
+          best = { x, y, width: vw, height: vh, rotated, score1: s1, score2: s2 };
         }
       }
     }

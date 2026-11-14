@@ -10,6 +10,8 @@ import {
   contourSignedArea,
   orientContour,
   reverseContour,
+  approximateSegment,
+  contourToRing,
   segmentMidpoint,
 } from '../../../src/core/geometry/contour.ts';
 import { ringSignedArea } from '../../../src/core/geometry/polygon.ts';
@@ -320,5 +322,53 @@ describe('numerická stabilita a těsnost', () => {
     ];
     expect(contourSignedArea(c)).toBeCloseTo(2500 + exact, 9);
     expect(exact).toBeCloseTo((2 / 3) * 100 * 0.01, 6);
+  });
+});
+
+describe('aproximace oblouků – případy z code-review', () => {
+  it('dlouhá hrana s nepatrným obloukem má omezený počet bodů', () => {
+    // Poloměr ~10¹⁴ mm: 1 − tol/r se zaokrouhlí na 1 a krok úhlu vyšel nulový.
+    const to = { x: 400_000, y: 0 };
+    for (const bulge of [1e-9, -1e-9, 1e-12, 1e-7]) {
+      const pts = approximateSegment({ x: 0, y: 0 }, to, bulge, 0.01);
+      expect(pts.length).toBeLessThan(100);
+      expect(pts[pts.length - 1]).toEqual(to);
+      for (const p of pts) expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
+    }
+  });
+
+  it('odchylka aproximace zůstává pod tolerancí i u velkých poloměrů', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 1, max: 1e6, noNaN: true }),
+        fc.double({ min: 1e-7, max: 1, noNaN: true }),
+        fc.constantFrom(0.001, 0.01, 0.05),
+        (chord, bulge, tol) => {
+          const from = { x: 0, y: 0 };
+          const to = { x: chord, y: 0 };
+          const arc = bulgeToArc(from, to, bulge);
+          const pts = [from, ...approximateSegment(from, to, bulge, tol)];
+          expect(pts.length).toBeLessThan(200_000);
+          if (!arc) return;
+          for (let i = 0; i + 1 < pts.length; i++) {
+            const mx = (pts[i]!.x + pts[i + 1]!.x) / 2;
+            const my = (pts[i]!.y + pts[i + 1]!.y) / 2;
+            const sag = arc.radius - Math.hypot(mx - arc.center.x, my - arc.center.y);
+            // Relativní rezerva na zaokrouhlení u poloměrů 10⁶–10¹³ mm.
+            expect(sag).toBeLessThanOrEqual(tol * 1.001 + arc.radius * 1e-12);
+          }
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  it('obrys se statisíci vrcholů se převede bez přetečení zásobníku', () => {
+    const n = 300_000;
+    const contour = Array.from({ length: n }, (_, i) => {
+      const t = (2 * Math.PI * i) / n;
+      return { x: 1000 * Math.cos(t), y: 1000 * Math.sin(t), bulge: i % 2 ? 0.001 : 0 };
+    });
+    expect(contourToRing(contour, 0.01).length).toBeGreaterThanOrEqual(n);
   });
 });

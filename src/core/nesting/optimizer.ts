@@ -151,14 +151,32 @@ export function* optimizeShapes(
   let evaluations = 0;
   let generation = 0;
 
+  // Kusy téhož dílu jsou zaměnitelné: jedinci se stejným sledem (díl, natočení)
+  // dají stejný plán – skládá se jen první z nich, ostatní výsledek převezmou.
+  const partKey = new Map(input.parts.map((p, i) => [p, i]));
+  const memo = new Map<string, ShapeResult>();
+  const keyOf = (ind: Individual) =>
+    ind.order
+      // Jediné povolené natočení je totéž co „placer vybere".
+      .map((k, pos) => {
+        const r = rotations[k]!.length > 1 ? (ind.rotation[pos] ?? '') : '';
+        return `${partKey.get(items[k]!.part) ?? -1}:${r}`;
+      })
+      .join(',');
+
   const add = function* (ind: Individual): Generator<GaStep, void, void> {
-    const steps = evaluate(ind);
-    let next = steps.next();
-    while (!next.done) {
-      yield { evaluations, generation, best, evaluated: false, improved: false };
-      next = steps.next();
+    const key = keyOf(ind);
+    let result = memo.get(key);
+    if (!result) {
+      const steps = evaluate(ind);
+      let next = steps.next();
+      while (!next.done) {
+        yield { evaluations, generation, best, evaluated: false, improved: false };
+        next = steps.next();
+      }
+      result = next.value;
+      memo.set(key, result);
     }
-    const result = next.value;
     evaluations++;
     const improved = !best || better(result, best);
     if (improved) best = result;

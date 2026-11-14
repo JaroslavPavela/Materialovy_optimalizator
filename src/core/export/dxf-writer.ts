@@ -93,21 +93,29 @@ export class LayerNames {
     this.maxLength = maxLength;
     for (const p of parts) {
       const shape = p.shape;
-      if (!shape?.layers) continue;
-      this.add(shape.layers.outer, 'outer');
-      for (const h of shape.layers.holes) this.add(h, 'hole');
+      if (!shape) continue;
+      if (shape.layers) {
+        this.add(shape.layers.outer, 'outer');
+        for (const h of shape.layers.holes) this.add(h, 'hole');
+      }
+      // Přidaná geometrie a poznámky mají hladinu i u dílu bez hladin obrysů.
       for (const m of shape.marks ?? []) this.add(m.layer, 'mark');
       for (const n of shape.notes ?? []) this.add(n.layer, 'mark');
     }
   }
 
-  private static generic(name: string, kind: LayerKind): string | null {
-    if (!GENERIC_LAYERS.has(dxfLayerName(name))) return null;
+  /**
+   * Obecná hladina se pozná až po převodu pro cílovou verzi: v R12 je „Díly"
+   * totéž co DILY, ve verzích 2000+ je to jiná vrstva (jen velikost písmen
+   * názvy nerozlišuje).
+   */
+  private generic(name: string, kind: LayerKind): string | null {
+    if (!GENERIC_LAYERS.has(this.convert(name).toUpperCase())) return null;
     return kind === 'outer' ? 'DILY' : kind === 'hole' ? 'OTVORY' : '0';
   }
 
   private add(name: string, kind: LayerKind) {
-    if (LayerNames.generic(name, kind) !== null || this.byName.has(name)) return;
+    if (this.generic(name, kind) !== null || this.byName.has(name)) return;
     const base = this.convert(name);
     let out = base;
     for (let k = 2; this.taken.has(out.toUpperCase()); k++) {
@@ -120,7 +128,7 @@ export class LayerNames {
   }
 
   get(name: string, kind: LayerKind): string {
-    return LayerNames.generic(name, kind) ?? this.byName.get(name) ?? this.convert(name);
+    return this.generic(name, kind) ?? this.byName.get(name) ?? this.convert(name);
   }
 }
 
@@ -130,15 +138,16 @@ export const MAX_MODERN_LAYER_NAME = 255;
 /**
  * Název hladiny jako vrstva DXF 2000+: původní název včetně diakritiky
  * a mezer; jen znaky, které AutoCAD v názvech nepovoluje (< > / \ " : ; ? * | = ` ,)
- * a řídicí znaky jako „_", bez mezer na okrajích, nejvýš 255 znaků. Prázdný = „0".
+ * jako „_", řídicí znaky jako mezera (jako text v R12), bez mezer na okrajích,
+ * nejvýš 255 znaků. Prázdný = „0".
  */
 export function modernLayerName(name: string): string {
-  // Řídicí znaky v názvu vrstvy nejsou povolené.
-  // eslint-disable-next-line no-control-regex
-  const out = [...name.replace(/[<>/\\":;?*|=`,\u0000-\u001f\u007f]/g, '_').trim()]
-    .slice(0, MAX_MODERN_LAYER_NAME)
-    .join('')
+  const cleaned = name
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[<>/\\":;?*|=`,]/g, '_')
     .trim();
+  const out = [...cleaned].slice(0, MAX_MODERN_LAYER_NAME).join('').trim();
   return out || '0';
 }
 
@@ -212,7 +221,7 @@ export function sheetDrawing(
       for (const segment of m.segments) items.push({ kind: 'segment', layer, segment });
     }
     for (const { layer: from, ...note } of c.notes ?? []) {
-      if (!note.text || !(note.height > 0)) continue;
+      if (!note.text.trim() || !(note.height > 0)) continue;
       const layer = names.get(from, 'mark');
       used.add(layer);
       items.push({ kind: 'text', layer, note });
@@ -222,7 +231,8 @@ export function sheetDrawing(
     for (const { label } of placed) {
       // Výška velkých písmen ≈ 0,7 × velikost písma (stejná velikost jako SVG a náhled).
       const height = 0.7 * labelSize(label);
-      if (!(height > 0)) continue;
+      // Díl bez názvu popisek nemá (prázdný TEXT některé čtečky odmítnou).
+      if (!(height > 0) || !label.part.name.trim()) continue;
       items.push({
         kind: 'text',
         layer: 'POPISKY',

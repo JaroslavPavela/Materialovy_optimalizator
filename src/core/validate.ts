@@ -75,6 +75,9 @@ export function validateNestingInput(input: NestingInput): InputIssue[] {
     if (s.stock !== null && !(Number.isInteger(s.stock) && s.stock >= 0)) {
       add(`${f}.stock`, `${label}: počet skladem musí být celé číslo ≥ 0 nebo neomezeno.`);
     }
+    if (s.thickness !== undefined && !isPositive(s.thickness)) {
+      add(`${f}.thickness`, `${label}: tloušťka musí být kladné číslo.`);
+    }
     if (!isNonNegative(s.margin)) {
       add(`${f}.margin`, `${label}: okraj musí být nezáporné číslo.`);
     } else if (isPositive(s.width) && isPositive(s.height)) {

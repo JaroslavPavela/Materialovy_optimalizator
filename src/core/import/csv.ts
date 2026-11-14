@@ -194,27 +194,52 @@ function lineOf(starts: readonly number[], offset: number): number {
   return lo + 1;
 }
 
-/** Řádky CSV s číslem řádku v souboru, kde záznam začíná; prázdné řádky vynechány. */
-function readRecords(text: string, delimiter: CsvDelimiter): { line: number; cells: string[] }[] {
-  const starts = lineStarts(text);
-  const records: { line: number; cells: string[] }[] = [];
-  let cursor = 0;
-  Papa.parse<string[]>(text, {
-    delimiter,
-    skipEmptyLines: false,
-    step: (results) => {
-      const start = cursor;
-      cursor = results.meta.cursor;
-      const cells = results.data;
-      if (cells.every((c) => c.trim() === '')) return;
-      // Papa vrací cursor za oddělovačem řádku; začátek záznamu = konec předchozího.
-      let s = start;
-      while (s < text.length && (text[s] === '\n' || text[s] === '\r')) s++;
-      records.push({ line: lineOf(starts, s), cells });
-    },
-  });
-  return records;
+interface CsvRecords {
+  readonly records: { line: number; cells: string[] }[];
+  /** Řádek s neuzavřenou nebo chybnou uvozovkou (první takový), jinak `null`. */
+  readonly badQuoteLine: number | null;
 }
+
+/** Znak, který se v textovém souboru nevyskytuje – vypne zpracování uvozovek. */
+const NO_QUOTE = '\u0000';
+
+/**
+ * Řádky CSV s číslem řádku v souboru, kde záznam začíná; prázdné řádky vynechány.
+ * Chybná uvozovka (neuzavřená, nebo text za uzavírací) by spojila zbytek souboru
+ * do jednoho pole – soubor se pak čte znovu s uvozovkami jako běžnými znaky.
+ */
+function readRecords(text: string, delimiter: CsvDelimiter): CsvRecords {
+  const starts = lineStarts(text);
+  const read = (quotes: boolean) => {
+    const records: { line: number; cells: string[] }[] = [];
+    let badQuoteLine: number | null = null;
+    let cursor = 0;
+    Papa.parse<string[]>(text, {
+      delimiter,
+      skipEmptyLines: false,
+      ...(quotes ? {} : { quoteChar: NO_QUOTE }),
+      step: (results) => {
+        const start = cursor;
+        cursor = results.meta.cursor;
+        // Papa vrací cursor za oddělovačem řádku; začátek záznamu = konec předchozího.
+        let s = start;
+        while (s < text.length && (text[s] === '\n' || text[s] === '\r')) s++;
+        const line = lineOf(starts, s);
+        if (results.errors.some((e) => e.type === 'Quotes')) badQuoteLine ??= line;
+        const cells = results.data;
+        if (cells.every((c) => c.trim() === '')) return;
+        records.push({ line, cells });
+      },
+    });
+    return { records, badQuoteLine };
+  };
+  const first = read(true);
+  if (first.badQuoteLine === null) return first;
+  return { records: read(false).records, badQuoteLine: first.badQuoteLine };
+}
+
+/** Řádek „sep=;", kterým Excel označuje oddělovač (není součástí dat). */
+const SEP_LINE = /^sep=(.)[ \t]*(?=\r|\n|$)/i;
 
 /**
  * Načte díly z CSV. Nikdy nevyhazuje výjimku kvůli datům: chybné řádky
@@ -225,15 +250,26 @@ export function parsePartsCsv(
   options: CsvImportOptions = {},
 ): CsvImportResult {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const { text, encoding } = decodeCsv(bytes);
-  const delimiter = detectDelimiter(text);
+  const decoded = decodeCsv(bytes);
+  const { encoding } = decoded;
+  // Řádek „sep=" se vyprázdní (čísla řádků zůstanou) a určí oddělovač.
+  const sep = SEP_LINE.exec(decoded.text)?.[1];
+  const text = sep === undefined ? decoded.text : decoded.text.replace(SEP_LINE, '');
+  const delimiter = CANDIDATES.find((d) => d === sep) ?? detectDelimiter(text);
   const idPrefix = options.idPrefix ?? 'csv';
   const parts: Part[] = [];
   const errors: CsvIssue[] = [];
   const warnings: CsvIssue[] = [];
   const result = () => ({ parts, errors, warnings, encoding, delimiter });
 
-  const records = readRecords(text, delimiter);
+  const { records, badQuoteLine } = readRecords(text, delimiter);
+  if (badQuoteLine !== null) {
+    warnings.push({
+      row: badQuoteLine,
+      message:
+        'Neuzavřená nebo chybně umístěná uvozovka – soubor byl načten bez zpracování uvozovek (uvozovky zůstaly v textu).',
+    });
+  }
   const first = records[0];
   if (!first) {
     errors.push({ row: 1, message: 'Soubor neobsahuje žádné díly.' });

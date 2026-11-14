@@ -365,3 +365,80 @@ describe('DXF 2000/2018 – případy z revize', () => {
     expect(only[0]!.name).toBe(all[1]!.name);
   });
 });
+
+describe('DXF – případy z code-review', () => {
+  const one: SheetLayout = {
+    sheetId: 't',
+    placements: [{ partId: 'x', instance: 0, x: 200, y: 20, rotation: 0 }],
+  };
+  const withShape = (shape: Partial<NonNullable<Part['shape']>>, name = 'Díl'): Part => ({
+    ...plate,
+    id: 'x',
+    name,
+    shape: { ...plate.shape!, ...shape },
+  });
+
+  it('díl bez hladin obrysů: přidaná geometrie a poznámky mají vrstvu v tabulce i příponu při kolizi', () => {
+    const shape = { ...plate.shape! };
+    delete (shape as { layers?: unknown }).layers;
+    const part: Part = {
+      ...plate,
+      id: 'x',
+      shape: {
+        ...shape,
+        marks: [{ layer: 'Tabule', segments: plate.shape!.marks![0]!.segments }],
+        notes: [{ ...plate.shape!.notes![0]!, layer: 'gravír č. 1' }],
+      },
+    };
+    const names = modernLayerNames([part]);
+    expect(names.get('Tabule', 'mark')).toBe('Tabule_2');
+    for (const [version] of VERSIONS) {
+      const { used, defined } = layersOf(writeSheetDxfModern(sheet, one, [part], version));
+      for (const layer of used) expect(defined.has(layer)).toBe(true);
+      expect([...defined].map(decodeDxfUnicode)).toContain('gravír č. 1');
+    }
+    // R12: stejná oprava – vrstva přidané geometrie nesplyne s vrstvou TABULE.
+    const r12 = layersOf(writeSheetDxf(sheet, one, [part]));
+    expect([...r12.defined]).toContain('TABULE_2');
+    for (const layer of r12.used) expect(r12.defined.has(layer)).toBe(true);
+  });
+
+  it('2000/2018: „Díly" a „Otvory" jsou vlastní vrstvy, „dily" a „OTVORY" obecné; R12 beze změny', () => {
+    const part = withShape({ layers: { outer: 'Díly', holes: ['Otvory'] }, marks: [], notes: [] });
+    const modern = modernLayerNames([part]);
+    expect(modern.get('Díly', 'outer')).toBe('Díly');
+    expect(modern.get('Otvory', 'hole')).toBe('OTVORY');
+    expect(modern.get('dily', 'outer')).toBe('DILY');
+    const text = writeSheetDxfModern(sheet, one, [part], '2018');
+    expect([...layersOf(text).defined]).toContain('Díly');
+    const r12 = writeSheetDxf(sheet, one, [part]);
+    const r12Layers = [...layersOf(r12).defined];
+    expect(r12Layers).toContain('DILY');
+    expect(r12Layers).not.toContain('DILY_2');
+  });
+
+  it('prázdný název dílu ani prázdná poznámka nedají prázdný TEXT', () => {
+    const part = withShape({ notes: [{ ...plate.shape!.notes![0]!, text: '  \t ' }] }, '   ');
+    for (const [version] of VERSIONS) {
+      const back = readDxf(writeSheetDxfModern(sheet, one, [part], version));
+      expect(back.texts).toEqual([]);
+    }
+    expect(readDxf(writeSheetDxf(sheet, one, [part])).texts).toEqual([]);
+  });
+
+  it('řídicí znaky v textu a názvu hladiny se zapíšou jako mezera (ne „^J")', () => {
+    expect(modernLayerName('Ohyb\tdolů\nA')).toBe('Ohyb dolů A');
+    const part = withShape(
+      { notes: [{ ...plate.shape!.notes![0]!, text: 'řádek\ndalší\tsloupec' }] },
+      'Bok\n2',
+    );
+    for (const [version] of VERSIONS) {
+      const text = writeSheetDxfModern(sheet, one, [part], version);
+      expect(text).not.toContain('^J');
+      expect(text).not.toContain('^I');
+      const texts = readDxf(text).texts.map((t) => t.text);
+      expect(texts).toContain('řádek další sloupec');
+      expect(texts).toContain('Bok 2');
+    }
+  });
+});

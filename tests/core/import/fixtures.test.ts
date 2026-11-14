@@ -80,7 +80,7 @@ const EXPECTED: Record<string, readonly Expectation[]> = {
   'vice-dilu.dxf': [
     {
       parts: [[300, 200, 1]],
-      warnings: [/Uvnitř otvorů dílu je 1 dalších/, /Mimo hlavní obrys je 2 dalších/],
+      warnings: [/Uvnitř otvorů dílu je 1 další kontura – ignorována/, /Mimo hlavní obrys jsou 2 další kontury – ignorovány/],
     },
     {
       opts: { mode: 'multi' },

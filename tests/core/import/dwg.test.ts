@@ -65,6 +65,41 @@ describe('dwgToDxf – chyby', () => {
     }
   });
 
+  it('poškozená hlavička, na které čtečka plní paměť donekonečna → chyba', () => {
+    // Případ z code-review: bez stropu velikosti dat vláknu došla paměť.
+    const bytes = load('dwg/blok-ac1024.dwg').slice();
+    for (let i = 200; i < bytes.length; i += 211) bytes[i]! ^= 0x55;
+    const push = Array.prototype.push;
+    const r = partsFromDwg('vadny.dwg', bytes);
+    expect(r.parts).toEqual([]);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]).toMatch(/nelze přečíst.*poškozený nebo neúplný/);
+    expect(Array.prototype.push).toBe(push);
+  }, 30_000);
+
+  it('useknuté DWG R14 a 2000 (čtečka se na nich zacyklila) → chyba', () => {
+    // Případy z revize: sekce z hlavičky míří za konec souboru.
+    const cases: [string, number[]][] = [
+      [
+        'dwg/plan-polyline-ac1015.dwg',
+        [1271, 1907, 2312, 2330, 2754, 3178, 3602, 3898, 4000, 4110],
+      ],
+      [
+        'dwg/zrcadleny-rozvin-ac1014.dwg',
+        [20, 1015, 1523, 1541, 1861, 2200, 2538, 2877, 3000, 3283],
+      ],
+    ];
+    for (const [file, lengths] of cases) {
+      const whole = load(file);
+      for (const n of lengths) {
+        const r = partsFromDwg('useknuty.dwg', whole.subarray(0, n));
+        expect(r.parts).toEqual([]);
+        expect(r.errors[0]).toMatch(/nelze přečíst.*poškozený nebo neúplný/);
+      }
+      expect(partsFromDwg('cely.dwg', whole).errors).toEqual([]);
+    }
+  });
+
   it('Uint8Array uprostřed většího bufferu se čte jen ve svém rozsahu', () => {
     const whole = load('dwg/dil-s-otvory-ac1032.dwg');
     const padded = new Uint8Array(whole.length + 20);

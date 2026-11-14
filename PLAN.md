@@ -688,3 +688,44 @@ BLOKOVÁNO: ne
   (`showModal`, zavření tlačítkem i Esc). Po změně role hladiny se okno samo
   neotevírá (při zkoušení rolí by překáželo), jeho obsah se ale aktualizuje;
   tlačítko je u každého souboru s chybami nebo varováními.
+- Po kroku 8.7 (code-review): Na přání uživatele hloubkový code-review celé
+  aplikace a oprava všech nálezů (jádro, import, export, store, úložiště, UI),
+  každý s regresním testem; žádný nový krok plánu, rozsah beze změny.
+  Hlavní změny v importu výkresů: mřížkový index obdélníků
+  `core/geometry/rect-index.ts` pro hledání rodiče kontury, dílu k textu
+  a k přidané geometrii (20 000 otvorů 20,8 s → 2,9 s, 20 000 dílů s textem
+  28,6 s → 2,6 s, s gravírem 88,8 s → 3,5 s); mez souřadnic `MAX_COORD`
+  (1 000 km) a výšky oblouku `MAX_SAGITTA` (1 km) – obří oblouk vyčerpal
+  paměť; vlastní obsluha LWPOLYLINE (chybějící kód 90 shodil celý výkres;
+  méně vrcholů, než entita uvádí, = chyba a entita se vynechá); MTEXT se pro
+  přiřazení k dílu zalamuje podle rámečku; aproximace oblouků s poloměrem
+  nad ~10⁸ mm (nulový krok úhlu) a obrysy se statisíci vrcholů (přetečení
+  zásobníku). Výkres bez ukončení EOF se doplní a načte: je-li useknutý až za
+  sekcí entit, jen s varováním; uprostřed entit se poslední (nejspíš neúplná)
+  entita vynechá s chybou – useknutá uzavřená křivka by jinak tiše dala menší
+  díl. Text, který není DXF, se za useknutý výkres nevydává.
+  DWG: poškozená hlavička DWG 2004+ plnila v acad-ts pole do vyčerpání paměti
+  workeru – čtení běží se stropem počtu `Array.prototype.push` (dočasný obal,
+  po čtení se vrací původní); useknuté DWG R13–2000 čtečku zacyklilo – před
+  čtením se ověří, že sekce z hlavičky leží v souboru. Zbytkové riziko:
+  jiná nekonečná smyčka knihovny bez alokací by import dál zasekla (worker
+  jde ukončit jen zrušením).
+  Hlášení importu se skloňují podle počtu (`core/plural.ts`; „1 další
+  kontura – ignorována", „5 dalších kontur – ignorovány") – změněná znění
+  mají upravená očekávání v testech. CSV: řádek `sep=` z Excelu určí
+  oddělovač; chybná uvozovka už nespojí zbytek souboru do jednoho pole
+  (soubor se přečte bez zpracování uvozovek, s varováním) – doplněno
+  v docs/format-csv.md. Genetický optimalizátor si pamatuje výsledky shodných
+  jedinců (kusy téhož dílu jsou zaměnitelné), takže stejný sled dílů
+  a natočení neskládá znovu.
+  Revize subagentem revize-geometrie: 4 významné a 2 drobné nálezy
+  (kvadratický regulární výraz při ořezu konce souboru, useknutá křivka,
+  useknuté DWG R14/2000, obří oblouk, falešné varování o EOF, nekonečné
+  obdélníky v indexu) – opraveny s testy.
+  Kontrolní revize oprav: soubor useknutý v hlavičce nebo tabulkách dxf-parser
+  zacyklil (čtení tabulky hladin) – sekce, ve které soubor bez EOF končí, se
+  zjistí před čtením a takový soubor skončí chybou „soubor je neúplný";
+  useknutí uvnitř bloků je také chyba (při sekci entit před bloky by vznikl
+  díl bez otvoru).
+  Kontrola: lint, typecheck, 680 testů, 28 e2e, build bez varování (hlavní
+  balík 437 kB).

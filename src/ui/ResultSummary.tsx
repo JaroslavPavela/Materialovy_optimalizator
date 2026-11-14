@@ -16,6 +16,7 @@ export function ResultSummary() {
         s.resultInput.params !== s.params),
   );
   const saveRemnants = useAppStore((s) => s.saveRemnants);
+  const running = useAppStore((s) => s.status === 'running');
   const [saved, setSaved] = useState<number | null>(null);
   const [savedFor, setSavedFor] = useState(result);
   if (savedFor !== result) {
@@ -77,7 +78,7 @@ export function ResultSummary() {
           <button
             type="button"
             className="secondary"
-            disabled={saved !== null}
+            disabled={saved !== null || running}
             onClick={() => setSaved(saveRemnants())}
           >
             Uložit zbytky do skladu ({remnants})

@@ -11,6 +11,8 @@ export function formatPercent(ratio: number): string {
   })} %`;
 }
 
+export { plural } from '../core/plural.ts';
+
 /** Plocha v mm² jako m². */
 export function formatArea(mm2: number): string {
   return `${formatNumber(mm2 / 1e6, 2)} m²`;

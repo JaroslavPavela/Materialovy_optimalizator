@@ -151,10 +151,12 @@ export function approximateSegment(from: Point, to: Point, bulge: number, tol: n
   const { center, radius, startAngle, sweep } = arc;
   // Odchylka tětivy se středovým úhlem φ je r·(1 − cos(φ/2)).
   // Aspoň 3 úsečky na celý kruh (oblouk ≥ 180° nikdy jako jediná tětiva).
-  const maxStep = Math.min(
-    (2 * Math.PI) / 3,
-    tol >= radius ? Math.PI : 2 * Math.acos(1 - tol / radius),
-  );
+  // Pro malý podíl tol/r je 1 − tol/r v plovoucí čárce rovno 1 (acos = 0,
+  // nekonečně mnoho dílků) – tam platí acos(1 − x) ≈ √(2x).
+  const x = tol / radius;
+  const half = x >= 1 ? Math.PI / 2 : x < 1e-8 ? Math.sqrt(2 * x) : Math.acos(1 - x);
+  const maxStep = Math.min((2 * Math.PI) / 3, 2 * half);
+  if (!(maxStep > 0)) return [to];
   const sweepRad = (Math.abs(sweep) * Math.PI) / 180;
   const n = Math.max(1, Math.ceil(sweepRad / maxStep - 1e-9));
   const out: Point[] = [];
@@ -173,8 +175,8 @@ export function contourToRing(contour: Contour, tol: number): Ring {
     const next = contour[(i + 1) % contour.length]!;
     out.push({ x: v.x, y: v.y });
     const pts = approximateSegment(v, next, v.bulge, tol);
-    pts.pop();
-    out.push(...pts);
+    // Bez rozbalení do argumentů – velký oblouk má statisíce bodů.
+    for (let k = 0; k + 1 < pts.length; k++) out.push(pts[k]!);
   });
   return out;
 }

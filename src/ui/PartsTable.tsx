@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { RotationMode } from '../core/model.ts';
 import { useAppStore, type BulkPartPatch } from '../state/store.ts';
 import { ROTATION_LABEL } from './labels.ts';
-import { formatNumber } from './format.ts';
+import { formatNumber, plural } from './format.ts';
 import { NumberInput } from './NumberInput.tsx';
 
 /** Editovatelná tabulka dílů. */
@@ -18,19 +18,21 @@ export function PartsTable() {
 
   // Výběr řádků je jen stav UI; ID odebraných dílů se ignorují.
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
-  const lastClicked = useRef<number | null>(null);
+  // ID naposledy kliknutého dílu – index by po odebrání dílů ukazoval jinam.
+  const lastClicked = useRef<string | null>(null);
   const selectedIds = parts.filter((p) => selection.has(p.id)).map((p) => p.id);
   const allSelected = parts.length > 0 && selectedIds.length === parts.length;
 
   const toggle = (index: number, checked: boolean, range: boolean) => {
     const next = new Set(selectedIds);
-    const from = range && lastClicked.current !== null ? lastClicked.current : index;
+    const last = range ? parts.findIndex((p) => p.id === lastClicked.current) : -1;
+    const from = last >= 0 ? last : index;
     for (let k = Math.min(from, index); k <= Math.max(from, index); k++) {
       const id = parts[k]!.id;
       if (checked) next.add(id);
       else next.delete(id);
     }
-    lastClicked.current = index;
+    lastClicked.current = parts[index]!.id;
     setSelection(next);
   };
 
@@ -39,7 +41,7 @@ export function PartsTable() {
       <h2>
         Díly{' '}
         <span className="muted">
-          ({parts.length} druhů, {total} ks)
+          ({parts.length} {plural(parts.length, 'druh', 'druhy', 'druhů')}, {total} ks)
         </span>
       </h2>
       {parts.length > 0 && (

@@ -7,6 +7,9 @@ import type { ProjectStorage } from './db.ts';
 
 /** Prodleva automatického uložení po poslední změně (ms). */
 export const AUTOSAVE_DELAY_MS = 400;
+/** Prodleva nového pokusu po neúspěšném zápisu (ms) a nejvyšší počet pokusů v řadě. */
+export const RETRY_DELAY_MS = 5000;
+export const MAX_RETRIES = 3;
 
 export interface Persistence {
   /** Okamžitě zapíše čekající změny. */
@@ -47,25 +50,55 @@ export async function initPersistence(
   let projectDirty = false;
   let libraryDirty = false;
   let writing: Promise<void> = Promise.resolve();
+  let disposed = false;
+
+  /** Neúspěšné zápisy v řadě – po `MAX_RETRIES` se čeká na další změnu. */
+  let failures = 0;
 
   const write = () => {
     timer = null;
     const s = store.getState();
-    const tasks: Promise<void>[] = [];
+    const tasks: (() => Promise<boolean>)[] = [];
+    // Po neúspěchu zůstane změna označená k uložení.
+    const attempt = (task: Promise<void>, failed: () => void) =>
+      task.then(
+        () => true,
+        (e: unknown) => {
+          failed();
+          console.warn('Uložení projektu selhalo:', e);
+          return false;
+        },
+      );
     if (projectDirty) {
       projectDirty = false;
-      tasks.push(storage.saveLastProject(toProjectFile(s, now())));
+      const file = toProjectFile(s, now());
+      tasks.push(() =>
+        attempt(storage.saveLastProject(file), () => {
+          projectDirty = true;
+        }),
+      );
     }
     if (libraryDirty) {
       libraryDirty = false;
-      tasks.push(storage.saveSheetLibrary(s.sheetLibrary));
+      const library = s.sheetLibrary;
+      tasks.push(() =>
+        attempt(storage.saveSheetLibrary(library), () => {
+          libraryDirty = true;
+        }),
+      );
     }
     writing = writing
-      .then(() => Promise.all(tasks))
-      .then(
-        () => undefined,
-        (e: unknown) => console.warn('Uložení projektu selhalo:', e),
-      );
+      .then(() => Promise.all(tasks.map((t) => t())))
+      .then((ok) => {
+        if (ok.every(Boolean)) {
+          if (ok.length > 0) failures = 0;
+          return;
+        }
+        failures++;
+        if (failures < MAX_RETRIES && timer === null && !disposed) {
+          timer = setTimeout(write, RETRY_DELAY_MS);
+        }
+      });
     return writing;
   };
 
@@ -105,6 +138,7 @@ export async function initPersistence(
   return {
     flush,
     async dispose() {
+      disposed = true;
       unsubscribe();
       await flush();
     },

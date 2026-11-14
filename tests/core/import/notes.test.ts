@@ -113,7 +113,7 @@ describe('partsFromDxf – textové poznámky', () => {
     const notes = r.parts[0]!.shape!.notes!;
     expect(notes).toHaveLength(1);
     expectNote(notes[0], { layer: 'POZN', text: 'S235 tl.3', at: { x: 20, y: 20 }, height: 5 });
-    expect(r.warnings).toContain('Na hladině „POZN" leží 1 textů mimo obrysy dílů – nepřeneseny.');
+    expect(r.warnings).toContain('Na hladině „POZN" leží 1 text mimo obrysy dílů – nepřenesen.');
     expect(r.layers.find((l) => l.name === 'POZN')).toEqual({
       name: 'POZN',
       segments: 0,
@@ -311,7 +311,7 @@ describe('textové poznámky – případy z revize', () => {
       { layerRoles: roles({ POZN: 'attach' }) },
     );
     expect(r.parts[0]!.shape!.notes!.map((n) => n.text)).toEqual(['DOLE']);
-    expect(r.warnings).toContain('Na hladině „POZN" leží 1 textů mimo obrysy dílů – nepřeneseny.');
+    expect(r.warnings).toContain('Na hladině „POZN" leží 1 text mimo obrysy dílů – nepřenesen.');
   });
 
   it('MTEXT se zalomí podle šířky rámečku; pevná mezera \\~ není formátování', () => {

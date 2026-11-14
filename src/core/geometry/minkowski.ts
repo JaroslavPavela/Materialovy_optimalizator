@@ -191,12 +191,16 @@ export function minkowskiSumFast(a: Ring, b: Ring): Polygon[] {
   const pa = convexDecomposition(a);
   const pb = convexDecomposition(b);
   if (!pa || !pb) return clipperMinkowskiSum(a, b);
-  // Kaskádové sjednocení: nejdřív po řádcích (Aᵢ ⊕ všechna Bⱼ), pak binárním
-  // stromem. Jedno sjednocení všech |A|·|B| silně se překrývajících kusů je
-  // u tvarů s mnoha konkávními vrcholy (ozubení) řádově pomalejší.
-  let level = pa.map((x) =>
-    unionPolygons(pb.map((y) => ({ outer: convexMinkowski(x, y), holes: [] }))),
-  );
+  return cascadeUnion(pa.map((x) => pb.map((y) => ({ outer: convexMinkowski(x, y), holes: [] }))));
+}
+
+/**
+ * Kaskádové sjednocení: nejdřív každá skupina zvlášť, pak binárním stromem.
+ * Jedno sjednocení všech silně se překrývajících kusů je u tvarů s mnoha
+ * konkávními vrcholy (ozubení) nebo hranami (kruhový otvor) řádově pomalejší.
+ */
+function cascadeUnion(groups: readonly (readonly Polygon[])[]): Polygon[] {
+  let level = groups.map((g) => unionPolygons(g));
   while (level.length > 1) {
     const next: Polygon[][] = [];
     for (let i = 0; i < level.length; i += 2) {
@@ -246,17 +250,20 @@ export function holeInnerFit(
   const neg = b.map((p) => ({ x: -p.x, y: -p.y }));
   const pieces = convexDecomposition(neg);
   if (!pieces) return [];
-  const sweeps: Polygon[] = [];
+  // Po hranách otvoru (skupina = jedna hrana × všechny části), viz cascadeUnion.
+  const sweeps: Polygon[][] = [];
   for (let i = 0; i < hole.length; i++) {
     const p = hole[i]!;
     const q = hole[(i + 1) % hole.length]!;
+    const edge: Polygon[] = [];
     for (const piece of pieces) {
       const hull = convexHull([
         ...piece.map((v) => ({ x: v.x + p.x, y: v.y + p.y })),
         ...piece.map((v) => ({ x: v.x + q.x, y: v.y + q.y })),
       ]);
-      if (hull.length >= 3) sweeps.push({ outer: hull, holes: [] });
+      if (hull.length >= 3) edge.push({ outer: hull, holes: [] });
     }
+    sweeps.push(edge);
   }
   const b0 = b[0]!;
   const start: Polygon = {
@@ -266,5 +273,5 @@ export function holeInnerFit(
     ),
     holes: [],
   };
-  return differencePolygons([start], forbidden(unionPolygons(sweeps)));
+  return differencePolygons([start], forbidden(cascadeUnion(sweeps)));
 }

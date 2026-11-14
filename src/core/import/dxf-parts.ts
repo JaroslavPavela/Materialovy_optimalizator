@@ -7,11 +7,13 @@ import {
 } from '../geometry/contour.ts';
 import { rectsNear } from '../geometry/compare.ts';
 import { EPS } from '../geometry/eps.ts';
-import { pointInRing, pointRingDistance } from '../geometry/polygon.ts';
+import { pointInRing, pointRingDistance, pointsBBox } from '../geometry/polygon.ts';
+import { RectIndex } from '../geometry/rect-index.ts';
 import { translateContour } from '../geometry/transform.ts';
 import type { Contour, Point, Rect, Ring } from '../geometry/types.ts';
 import type { Part, PartMarks, PartNote, PartShape, RotationMode, ShapeSegment } from '../model.ts';
 import { noteCorners } from '../notes.ts';
+import { plural } from '../plural.ts';
 import { buildContours, JOIN_TOL, type ContourOptions, type ShapeRegion } from './contours.ts';
 import {
   readDxf,
@@ -115,16 +117,18 @@ function attachNotes(
       return !ring.some((c, j) => crossesProperly(p, q, c, ring[(j + 1) % ring.length]!, tol));
     });
   };
+  const index = new RectIndex(bboxes);
   for (const t of texts) {
     if (t.lines.length === 0) continue;
     const boxes = t.lines.map((l) => noteCorners(l));
     let best = -1;
-    regions.forEach((r, i) => {
-      if (best >= 0 && regions[best]!.depth >= r.depth) return;
+    // Jen oblasti, do jejichž obalového obdélníku text zasahuje.
+    for (const i of index.query(pointsBBox(boxes.flat()), tol)) {
+      if (best >= 0 && regions[best]!.depth >= regions[i]!.depth) continue;
       if (boxes.every((c) => boxInside(c, i))) best = i;
-    });
+    }
     if (best < 0) outside.set(t.layer, (outside.get(t.layer) ?? 0) + 1);
-    else notes[best]!.push(...t.lines.map((l) => ({ ...l, layer: t.layer })));
+    else for (const l of t.lines) notes[best]!.push({ ...l, layer: t.layer });
   }
   return {
     regions: regions.map((r, i) => ({ ...r, notes: notes[i]! })),
@@ -204,12 +208,15 @@ function attachMarks(
     byLayer: new Map<string, ShapeSegment[]>(),
   }));
   const outside = new Map<string, number>();
+  const index = new RectIndex(prepared.map((p) => p.bbox));
   for (const s of segments) {
     let best = -1;
-    regions.forEach((r, i) => {
-      if (best >= 0 && regions[best]!.depth >= r.depth) return;
+    // Jen oblasti, do jejichž obalového obdélníku segment zasahuje.
+    const reach = pointsBBox([s.a, s.b, segmentMidpoint(s.a, s.b, s.bulge)]);
+    for (const i of index.query(reach, tol)) {
+      if (best >= 0 && regions[best]!.depth >= regions[i]!.depth) continue;
       if (segmentInside(s, prepared[i]!, tol)) best = i;
-    });
+    }
     if (best < 0) {
       outside.set(s.layer, (outside.get(s.layer) ?? 0) + 1);
       continue;
@@ -389,17 +396,21 @@ export function partsFromDxf(
   let regions: readonly ShapeRegion[] = built.regions;
   if (mode === 'single') {
     const largest = regions.reduce((a, b) => (contourArea(b.outer) > contourArea(a.outer) ? b : a));
-    const inner = regions.filter((r) => r !== largest && r.depth > largest.depth).length;
+    // V otvoru hlavního dílu leží jen hlouběji vnořená oblast uvnitř jeho
+    // obrysu (kontury se nekříží – rozhodne jeden vrchol); hlouběji vnořená
+    // oblast jinde ve výkresu je mimo.
+    const ring = contourToRing(largest.outer, opts.joinTol ?? JOIN_TOL);
+    const inner = regions.filter(
+      (r) => r !== largest && r.depth > largest.depth && pointInRing(r.outer[0]!, ring),
+    ).length;
     const outside = regions.length - 1 - inner;
+    const ignored = (n: number) =>
+      `${n} ${plural(n, 'další kontura – ignorována', 'další kontury – ignorovány', 'dalších kontur – ignorovány')} (pro více dílů v souboru zvolte režim „více dílů").`;
     if (inner > 0) {
-      warnings.push(
-        `Uvnitř otvorů dílu je ${inner} dalších kontur – ignorovány (pro více dílů v souboru zvolte režim „více dílů").`,
-      );
+      warnings.push(`Uvnitř otvorů dílu ${plural(inner, 'je', 'jsou', 'je')} ${ignored(inner)}`);
     }
     if (outside > 0) {
-      warnings.push(
-        `Mimo hlavní obrys je ${outside} dalších kontur – ignorovány (pro více dílů v souboru zvolte režim „více dílů").`,
-      );
+      warnings.push(`Mimo hlavní obrys ${plural(outside, 'je', 'jsou', 'je')} ${ignored(outside)}`);
     }
     regions = [largest];
   }
@@ -409,7 +420,7 @@ export function partsFromDxf(
   const marked = attachMarks(regions, attached, joinTol);
   for (const [layer, n] of marked.outside) {
     warnings.push(
-      `Na hladině „${layer}" (přidej k dílu) leží ${n} segmentů mimo obrysy dílů – ignorovány.`,
+      `Na hladině „${layer}" (přidej k dílu) ${plural(n, 'leží 1 segment mimo obrysy dílů – ignorován', `leží ${n} segmenty mimo obrysy dílů – ignorovány`, `leží ${n} segmentů mimo obrysy dílů – ignorovány`)}.`,
     );
   }
   // Textové poznámky: z hladin „přidej k dílu", případně i z hladin obrysů.
@@ -423,7 +434,9 @@ export function partsFromDxf(
   });
   const noted = attachNotes(marked.regions, noteTexts, joinTol);
   for (const [layer, n] of noted.outside) {
-    warnings.push(`Na hladině „${layer}" leží ${n} textů mimo obrysy dílů – nepřeneseny.`);
+    warnings.push(
+      `Na hladině „${layer}" ${plural(n, 'leží 1 text mimo obrysy dílů – nepřenesen', `leží ${n} texty mimo obrysy dílů – nepřeneseny`, `leží ${n} textů mimo obrysy dílů – nepřeneseny`)}.`,
+    );
   }
   if (noteTexts.some((t) => t.formatted)) {
     warnings.push(

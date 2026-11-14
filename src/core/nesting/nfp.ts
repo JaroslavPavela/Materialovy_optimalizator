@@ -167,11 +167,19 @@ export class NfpCache {
     return rA === 0 ? base : base.map((p) => rotatePolygon(p, rA));
   }
 
-  /** NFP zakázané zóny (už nafouknuté, v souřadnicích tabule) pro díl B. */
+  /**
+   * NFP zakázané zóny (už nafouknuté, v souřadnicích tabule) pro díl B.
+   * Zóny tvořící prstenec (rám z upínek po obvodu) mají po sjednocení otvor:
+   * posuny, při kterých B leží celý v něm, z NFP vypadnou – jinak by rám
+   * zablokoval celý vnitřek tabule.
+   */
   zone(zoneKey: string, zone: Polygon, b: Part, rotB: number): Polygon[] {
-    return this.memo(key('z', zoneKey, b.id, angleKey(rotB)), () =>
-      slack(nfp(zone.outer, this.shapes.at(b, rotB).outer)),
-    );
+    return this.memo(key('z', zoneKey, b.id, angleKey(rotB)), () => {
+      const bOuter = this.shapes.at(b, rotB).outer;
+      const blocked = slack(nfp(zone.outer, bOuter));
+      const inside = zone.holes.flatMap((h) => holeInnerFit(h, bOuter, slack));
+      return inside.length > 0 ? differencePolygons(blocked, inside) : blocked;
+    });
   }
 
   private memo(k: string, make: () => Polygon[]): Polygon[] {

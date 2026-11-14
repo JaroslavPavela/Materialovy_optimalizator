@@ -313,6 +313,11 @@ describe('validateNestingInput', () => {
     expect(fields(input({ sheets: [sheet({ stock: -1 })] }))).toEqual(['sheets[0].stock']);
     expect(fields(input({ sheets: [sheet({ stock: 0.5 })] }))).toEqual(['sheets[0].stock']);
     expect(fields(input({ sheets: [sheet({ margin: -1 })] }))).toEqual(['sheets[0].margin']);
+    expect(fields(input({ sheets: [sheet({ thickness: -2 })] }))).toEqual(['sheets[0].thickness']);
+    expect(fields(input({ sheets: [sheet({ thickness: Number.NaN })] }))).toEqual([
+      'sheets[0].thickness',
+    ]);
+    expect(fields(input({ sheets: [sheet({ thickness: 18 })] }))).toEqual([]);
     expect(fields(input({ sheets: [sheet({ margin: 625 })] }))).toEqual(['sheets[0].margin']);
   });
 

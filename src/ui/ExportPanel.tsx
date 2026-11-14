@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { writeResultCsv } from '../core/export/csv.ts';
 import { DXF_VERSIONS, type DxfVersion } from '../core/export/dxf-writer.ts';
@@ -36,6 +36,25 @@ export function ExportPanel() {
   const [dxfError, setDxfError] = useState<string | null>(null);
   const [paper, setPaper] = useState<PaperSize>('A4');
   const [printDate, setPrintDate] = useState<Date | null>(null);
+  const printing = useRef(false);
+  // Tisk z nabídky prohlížeče (Ctrl+P) i tam, kde `print()` neblokuje: tisková
+  // podoba vznikne před tiskem a zmizí až po něm.
+  useEffect(() => {
+    const before = () => {
+      printing.current = true;
+      flushSync(() => setPrintDate(new Date()));
+    };
+    const after = () => {
+      printing.current = false;
+      setPrintDate(null);
+    };
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    return () => {
+      window.removeEventListener('beforeprint', before);
+      window.removeEventListener('afterprint', after);
+    };
+  }, []);
   if (!result || !input || result.layouts.length === 0) return null;
 
   // Číslování a soubory po skupinách; bez seskupení je každá tabule skupinou.
@@ -81,7 +100,8 @@ export function ExportPanel() {
     // Tisková podoba se vykreslí synchronně, aby ji dialog tisku už viděl.
     flushSync(() => setPrintDate(new Date()));
     window.print();
-    setPrintDate(null);
+    // Tisk ještě běží (`print()` neblokuje) – podobu odebere až `afterprint`.
+    if (!printing.current) setPrintDate(null);
   };
 
   return (

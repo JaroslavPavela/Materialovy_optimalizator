@@ -1,4 +1,4 @@
-import { offsetPolygons, unionPolygons } from '../geometry/clipper.ts';
+import { intersectPolygons, offsetPolygons, unionPolygons } from '../geometry/clipper.ts';
 import { bulgeToArc, contourBBox, contourToRing } from '../geometry/contour.ts';
 import { orientRing, rectToPolygon, ringArea, simplifyRingWithError } from '../geometry/polygon.ts';
 import { rotatePolygon } from '../geometry/transform.ts';
@@ -79,11 +79,28 @@ export function inflatedPartPolygon(
   const delta = inflationDelta(spacing, error) + (join === 'round' ? ROUND_MARGIN : 0);
   const out =
     delta > 0 ? offsetPolygons([polygon], delta, join, ROUND_ARC_TOL) : unionPolygons([polygon]);
+  const largest = (polys: readonly Polygon[]) =>
+    polys.reduce((a, b) => (ringArea(b.outer) > ringArea(a.outer) ? b : a));
+  const bb = contourBBox(partContours(part).outer);
   if (out.length > 0) {
-    return out.reduce((a, b) => (ringArea(b.outer) > ringArea(a.outer) ? b : a));
+    // Rezerva na tětivy a zaoblení nesmí díl zvětšit přes přesný obal + s/2:
+    // přesně nafouknutý díl v něm leží celý, takže oříznutí zůstává
+    // konzervativní a kruh přesně na šířku plochy se vejde jako v MaxRects.
+    const half = spacing / 2;
+    const clipped = intersectPolygons(
+      [largest(out)],
+      [
+        rectToPolygon({
+          x: bb.x - half,
+          y: bb.y - half,
+          width: bb.width + spacing,
+          height: bb.height + spacing,
+        }),
+      ],
+    );
+    return largest(clipped.length > 0 ? clipped : out);
   }
   // Degenerovaný (mikroskopický) tvar: konzervativně jeho nafouknutý obalový obdélník.
-  const bb = contourBBox(partContours(part).outer);
   return rectToPolygon({
     x: bb.x - delta,
     y: bb.y - delta,

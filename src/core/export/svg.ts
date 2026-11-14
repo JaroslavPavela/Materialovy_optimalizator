@@ -15,7 +15,23 @@ import { sheetFileName, type ExportFile } from './files.ts';
 
 /** Barva dílu podle pořadí v zadání – zlatý úhel rozprostře odstíny rovnoměrně. */
 export function partColor(index: number): string {
-  return `hsl(${((index * 137.508) % 360).toFixed(1)} 65% 72%)`;
+  return hslToHex((index * 137.508) % 360, 0.65, 0.72);
+}
+
+/**
+ * HSL (odstín ve stupních, sytost a světlost 0–1) jako `#rrggbb`. Zápis
+ * `hsl(H S% L%)` bez čárek Inkscape a starší čtečky SVG neznají (černá výplň).
+ */
+export function hslToHex(h: number, s: number, l: number): string {
+  const a = s * Math.min(l, 1 - l);
+  const channel = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(255 * v)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `#${channel(0)}${channel(8)}${channel(4)}`;
 }
 
 /** Barvy všech dílů podle ID – stejné v náhledu, SVG i tisku. */
@@ -223,7 +239,7 @@ export function writeSheetSvg(
     );
     for (const { placed } of items) {
       const size = labelSize(placed);
-      if (!(size > 0)) continue;
+      if (!(size > 0) || !placed.part.name.trim()) continue;
       out.push(
         `<text x="${f(placed.labelAt.x)}" y="${f(H - placed.labelAt.y)}" font-size="${f(size)}">${xmlEscape(placed.part.name)}</text>`,
       );
@@ -239,7 +255,7 @@ export function writeSheetSvg(
     }
     out.push('</g>');
   }
-  const notes = items.flatMap((i) => i.notes);
+  const notes = items.flatMap((i) => i.notes).filter((n) => n.text.trim());
   if (notes.length > 0) {
     out.push(`<g font-family="sans-serif" fill="#0550ae">`);
     for (const n of notes) {

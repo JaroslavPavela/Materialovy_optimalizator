@@ -18,9 +18,9 @@ test('DWG → díly se skutečnými tvary → plán', async ({ page }) => {
     .setInputFiles([fixture('dil-s-otvory-ac1032.dwg'), fixture('palce-ac1018.dwg')]);
   await expect(
     page.getByRole('status').filter({ hasText: 'dil-s-otvory-ac1032.dwg' }),
-  ).toContainText('načteno 1 dílů');
+  ).toContainText('načten 1 díl');
   await expect(page.getByRole('status').filter({ hasText: 'palce-ac1018.dwg' })).toContainText(
-    'načteno 1 dílů',
+    'načten 1 díl',
   );
   await expect(page.getByLabel('Šířka dílu 1')).toHaveText('400');
   await expect(page.getByLabel('Šířka dílu 2')).toHaveText('101,6');
@@ -46,7 +46,7 @@ test('DWG starší verze ukáže srozumitelnou chybu', async ({ page }) => {
     .getByLabel('Soubory s díly')
     .setInputFiles({ name: 'stary.dwg', mimeType: 'application/acad', buffer: r12 });
   const report = page.getByRole('status').filter({ hasText: 'stary.dwg' });
-  await expect(report).toContainText('načteno 0 dílů, 1 chyb');
+  await expect(report).toContainText('načteno 0 dílů, 1 chyba');
   const dialog = page.getByRole('dialog', { name: 'Hlášení importu výkresů' });
   await expect(dialog.locator('.errors li')).toContainText('AutoCAD R11/R12');
 });

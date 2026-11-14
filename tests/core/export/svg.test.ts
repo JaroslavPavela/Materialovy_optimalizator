@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   contourPath,
   labelFontSize,
+  hslToHex,
   partColor,
   partColors,
   svgNumber,
@@ -160,6 +161,24 @@ describe('pomocné funkce', () => {
     expect(colors.get('d')).toBe(partColor(0));
     expect(colors.get('r')).toBe(partColor(1));
     expect(new Set(Array.from({ length: 20 }, (_, i) => partColor(i))).size).toBe(20);
+  });
+
+  it('barvy jsou #rrggbb (zápis hsl() bez čárek Inkscape nezná) a odpovídají HSL', () => {
+    for (let i = 0; i < 50; i++) expect(partColor(i)).toMatch(/^#[0-9a-f]{6}$/);
+    expect(hslToHex(0, 1, 0.5)).toBe('#ff0000');
+    expect(hslToHex(120, 1, 0.5)).toBe('#00ff00');
+    expect(hslToHex(240, 1, 0.5)).toBe('#0000ff');
+    expect(hslToHex(0, 0, 1)).toBe('#ffffff');
+    expect(hslToHex(200, 0, 0.5)).toBe('#808080');
+    // hsl(0 65% 72%) = rgb(230, 137, 137)
+    expect(partColor(0)).toBe('#e68989');
+    expect(writeSheetSvg(sheet, layout, [shaped, rect])).not.toContain('hsl(');
+  });
+
+  it('díl bez názvu nemá prázdný <text>', () => {
+    const svg = writeSheetSvg(sheet, layout, [{ ...shaped, name: '  ' }, rect]);
+    expect(svg).not.toMatch(/<text[^>]*>\s*<\/text>/);
+    expect(svg).toContain('<text');
   });
 
   it('popisek se vejde do obalového obdélníku', () => {

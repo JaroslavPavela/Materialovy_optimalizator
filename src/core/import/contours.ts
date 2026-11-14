@@ -1,3 +1,5 @@
+import { RectIndex } from '../geometry/rect-index.ts';
+import { plural } from '../plural.ts';
 import { contourBBox, contourToRing, orientContour, segmentMidpoint } from '../geometry/contour.ts';
 import {
   differencePolygons,
@@ -309,7 +311,12 @@ export function buildContours(
     target[q] = p;
     gaps.push(`Mezera ${fmt(d, 3)} mm u bodu ${at(pos[p]!)} byla automaticky uzavřena.`);
   }
-  report(warnings, gaps, (n) => `Automaticky uzavřeno dalších ${n} mezer.`);
+  report(
+    warnings,
+    gaps,
+    (n) =>
+      `Automaticky ${plural(n, 'uzavřena další', 'uzavřeny další', 'uzavřeno dalších')} ${n} ${plural(n, 'mezera', 'mezery', 'mezer')}.`,
+  );
   if (gaps.length > 0) {
     const again = dedupeEdges(
       edges.map((e) => ({ ...e, from: target[e.from]!, to: target[e.to]! })),
@@ -423,7 +430,7 @@ export function buildContours(
     const filled = polygonsArea(unionPolygons([{ outer: ring, holes: [] }]));
     if (Math.abs(filled - signed) > areaTol(ring)) {
       crossErrors.push(`Kontura protíná sama sebe u bodu ${at(c[0]!)}.`);
-      errorPoints.push(...c);
+      for (const v of c) errorPoints.push(v);
       continue;
     }
     if (signed <= minArea) {
@@ -450,9 +457,14 @@ export function buildContours(
     return false;
   };
   const parent = contours.map(() => -1);
+  // Kandidáti na rodiče jen z kontur, jejichž obalový obdélník se s konturou
+  // překrývá (plech s tisíci otvorů by jinak zkoušel každý otvor s každým).
+  const index = new RectIndex(contours.map((k) => k.bbox));
   for (let i = 0; i < contours.length; i++) {
-    for (let j = i - 1; j >= 0; j--) {
-      if (contours[j]!.area > contours[i]!.area && contains(j, i)) {
+    const near = index.query(contours[i]!.bbox, joinTol);
+    for (let n = near.length - 1; n >= 0; n--) {
+      const j = near[n]!;
+      if (j < i && contours[j]!.area > contours[i]!.area && contains(j, i)) {
         parent[i] = j;
         break;
       }

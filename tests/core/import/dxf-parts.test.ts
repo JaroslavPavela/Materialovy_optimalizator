@@ -112,7 +112,7 @@ describe('partsFromDxf', () => {
     ]);
     const single = partsFromDxf('r.dxf', text);
     expect(single.parts).toHaveLength(1);
-    expect(single.warnings.join()).toMatch(/Uvnitř otvorů dílu je 1 dalších kontur/);
+    expect(single.warnings.join()).toMatch(/Uvnitř otvorů dílu je 1 další kontura – ignorována/);
   });
 
   it('1 díl: kontury mimo hlavní obrys → varování', () => {
@@ -122,7 +122,7 @@ describe('partsFromDxf', () => {
     );
     expect(r.parts).toHaveLength(1);
     expect(r.parts[0]!.width).toBe(100);
-    expect(r.warnings.join()).toMatch(/Mimo hlavní obrys je 1 dalších kontur/);
+    expect(r.warnings.join()).toMatch(/Mimo hlavní obrys je 1 další kontura – ignorována/);
   });
 
   it('filtr vrstev: kóty a ohyby na jiných vrstvách se nepoužijí', () => {

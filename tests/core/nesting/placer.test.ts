@@ -17,7 +17,11 @@ import {
   ShapeSheet,
   shapeUnplaceableReason,
 } from '../../../src/core/nesting/placer.ts';
-import { partPolygon } from '../../../src/core/nesting/shapes.ts';
+import {
+  inflatedPartPolygon,
+  inflatedZones,
+  partPolygon,
+} from '../../../src/core/nesting/shapes.ts';
 import { shapeInvariantViolations } from './invariants.ts';
 
 const sheet = (patch: Partial<Sheet> = {}): Sheet => ({
@@ -323,5 +327,88 @@ describe('díl v otvoru jiného dílu (6.1)', () => {
     const r = run(inp);
     expect(r.unplaced.map((u) => u.partId)).toEqual(['m']);
     expect(shapeInvariantViolations(inp, r)).toEqual([]);
+  });
+});
+
+describe('případy z code-review', () => {
+  const zone = (id: string, x: number, y: number, w: number, h: number) => ({
+    id,
+    polygon: [
+      { x, y },
+      { x: x + w, y },
+      { x: x + w, y: y + h },
+      { x, y: y + h },
+    ],
+  });
+  const frame = [
+    zone('a', 0, 0, 1000, 30),
+    zone('b', 0, 970, 1000, 30),
+    zone('c', 0, 0, 30, 1000),
+    zone('d', 970, 0, 30, 1000),
+  ];
+  const shapeInput = (parts: Part[], s: Sheet, spacing: number): NestingInput => ({
+    parts,
+    sheets: [s],
+    params: { ...DEFAULT_NESTING_PARAMS, mode: 'shape', spacing },
+  });
+
+  it('zóny tvořící rám po obvodu nezablokují vnitřek tabule', () => {
+    const s = sheet({ width: 1000, height: 1000, margin: 0, forbiddenZones: frame });
+    const input = shapeInput([rect('p', 100, 100, { quantity: 4 })], s, 5);
+    expect(inflatedZones(s, 5).map((z) => z.holes.length)).toEqual([1]);
+    const r = placeShapes(new ShapeContext(input), defaultShapeOrder(input));
+    expect(r.unplaced).toEqual([]);
+    expect(r.layouts).toHaveLength(1);
+    expect(shapeInvariantViolations(input, r)).toEqual([]);
+    // Dole vlevo uvnitř rámu: 30 (zóna) + 5 (rozestup).
+    const first = r.layouts[0]!.placements[0]!;
+    expect(first.x).toBeCloseTo(35, 2);
+    expect(first.y).toBeCloseTo(35, 2);
+  });
+
+  it('rám se zónou uprostřed: ostrov zůstane obsazený, díl větší než vnitřek se nevejde', () => {
+    const s = sheet({
+      width: 1000,
+      height: 1000,
+      margin: 0,
+      stock: 1,
+      forbiddenZones: [...frame, zone('e', 300, 300, 400, 400)],
+    });
+    const input = shapeInput([rect('p', 250, 250, { quantity: 9 })], s, 5);
+    const r = placeShapes(new ShapeContext(input), defaultShapeOrder(input));
+    expect(shapeInvariantViolations(input, r)).toEqual([]);
+    // Kolem ostrova se vejde 8 kusů (pás 265 mm), devátý už ne.
+    expect(r.layouts[0]!.placements).toHaveLength(8);
+    const big = shapeInput([rect('q', 935, 935)], { ...s, forbiddenZones: frame }, 5);
+    const rb = placeShapes(new ShapeContext(big), defaultShapeOrder(big));
+    expect(rb.layouts).toEqual([]);
+    expect(rb.unplaced).toHaveLength(1);
+  });
+
+  it('kruh přesně na šířku užitné plochy se tvarově vejde (rezerva na tětivy se ořízne obalem)', () => {
+    const circle: Part = {
+      id: 'k',
+      name: 'k',
+      width: 300,
+      height: 300,
+      quantity: 1,
+      rotation: 'locked',
+      shape: {
+        outer: [
+          { x: 0, y: 150, bulge: 1 },
+          { x: 300, y: 150, bulge: 1 },
+        ],
+        holes: [],
+      },
+    };
+    for (const spacing of [0, 6]) {
+      const bb = polygonBBox(inflatedPartPolygon(circle, spacing));
+      expect(bb.width).toBeCloseTo(300 + spacing, 9);
+      expect(bb.height).toBeCloseTo(300 + spacing, 9);
+      const input = shapeInput([circle], sheet({ width: 300, height: 400, margin: 0 }), spacing);
+      const r = placeShapes(new ShapeContext(input), defaultShapeOrder(input));
+      expect(r.unplaced).toEqual([]);
+      expect(shapeInvariantViolations(input, r)).toEqual([]);
+    }
   });
 });

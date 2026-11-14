@@ -154,6 +154,17 @@ const MAX_ARRAY = 100_000;
 /** Rozsah chordální tolerance (mm) – menší by dal miliony bodů. */
 const MIN_CURVE_TOL = 1e-4;
 const MAX_CURVE_TOL = 10;
+/**
+ * Největší souřadnice v mm (1 000 km). Dál už nestačí přesnost čísel na
+ * tolerance spojování a Clipper má omezený rozsah celých čísel.
+ */
+export const MAX_COORD = 1e9;
+/**
+ * Největší výška oblouku (vzdálenost středu oblouku od tětivy) v mm. Počet
+ * úseček aproximace roste s √(výška / tolerance) – oblouk vysoký kilometry
+ * (chybná data) by vyčerpal paměť, i když má konce blízko u sebe.
+ */
+export const MAX_SAGITTA = 1e6;
 /** Normála se bere jako ±Z, liší-li se x, y nejvýš o tento relativní podíl. */
 const NORMAL_EPS = 1e-6;
 
@@ -278,6 +289,31 @@ class PolylineHandler {
   }
 }
 
+/**
+ * LWPOLYLINE: vrcholy (10, 20) s bulge (42) v pořadí výskytu. Obsluha
+ * dxf-parseru vyhodí výjimku, chybí-li počet vrcholů (kód 90), a s ní by
+ * padl celý výkres.
+ */
+const LwPolylineHandler = groupHandler('LWPOLYLINE', (groups) => {
+  const vertices: { x: number; y: number; bulge: number }[] = [];
+  let ys = 0;
+  for (const g of groups) {
+    const last = vertices.at(-1);
+    if (g.code === 10) vertices.push({ x: num(g.value), y: 0, bulge: 0 });
+    else if (g.code === 20 && last && ys < vertices.length) {
+      last.y = num(g.value);
+      ys = vertices.length;
+    } else if (g.code === 42 && last) last.bulge = num(g.value);
+  }
+  // Méně vrcholů, než entita uvádí (kód 90), nebo vrchol bez Y: useknutá data.
+  const declared = valuesOf(groups, 90)[0] ?? 0;
+  return {
+    vertices,
+    shape: ((valuesOf(groups, 70)[0] ?? 0) & 1) !== 0,
+    incomplete: vertices.length < declared || ys < vertices.length,
+  };
+});
+
 const ignoredHandlers = [...IGNORED]
   .filter((t) => !['TEXT', 'MTEXT', 'DIMENSION', 'POINT', 'ATTDEF', 'SOLID', '3DFACE'].includes(t))
   .map((t) => groupHandler(t, () => ({})));
@@ -290,6 +326,7 @@ function createParser(): DxfParser {
     EllipseHandler,
     SplineHandler,
     PolylineHandler,
+    LwPolylineHandler,
     TextHandler,
     MTextHandler,
     ...ignoredHandlers,
@@ -385,6 +422,7 @@ class Collector {
   readonly segments: DxfSegment[] = [];
   readonly texts: DxfText[] = [];
   readonly warnings: string[] = [];
+  readonly errors: string[] = [];
   readonly ignored = new Map<string, number>();
   readonly unsupported = new Map<string, number>();
   hidden = 0;
@@ -404,6 +442,12 @@ class Collector {
     this.warnings.push(message);
   }
 
+  errorOnce(message: string) {
+    if (this.warned.has(message)) return;
+    this.warned.add(message);
+    this.errors.push(message);
+  }
+
   count(map: Map<string, number>, type: string) {
     map.set(type, (map.get(type) ?? 0) + 1);
   }
@@ -416,6 +460,11 @@ class Collector {
 
   /** Segment v místních souřadnicích → transformovaný do mm. */
   segment(a: Point, b: Point, bulge: number, m: Affine, layer: string) {
+    // Dřív než aproximace: obří oblouk by měl miliony úseček.
+    if (Math.abs(bulge) * Math.hypot(b.x - a.x, b.y - a.y) * maxScale(m) > 2 * MAX_SAGITTA) {
+      this.warnOnce('Oblouk vyšší než 1 km (nejspíš chybná data) byl přeskočen.');
+      return;
+    }
     if (bulge !== 0 && !isSimilarity(m)) {
       // Nestejnoměrné měřítko bloku: z oblouku je elipsa – aproximace úsečkami.
       let prev = a;
@@ -428,6 +477,17 @@ class Collector {
     if (this.overflow) return;
     const A = applyAffine(m, a);
     const B = applyAffine(m, b);
+    // Negace zachytí i NaN z neplatných dat entity.
+    if (!(Math.max(Math.abs(A.x), Math.abs(A.y), Math.abs(B.x), Math.abs(B.y)) <= MAX_COORD)) {
+      this.warnOnce(
+        'Geometrie s neplatnými souřadnicemi nebo dál než 1 000 km od počátku byla přeskočena.',
+      );
+      return;
+    }
+    if (!Number.isFinite(bulge)) {
+      this.warnOnce('Oblouk s neplatným vyboulením (bulge) byl přeskočen.');
+      return;
+    }
     if (Math.hypot(B.x - A.x, B.y - A.y) <= 1e-9) return;
     if (this.segments.length >= MAX_SEGMENTS) {
       this.overflow = true;
@@ -467,7 +527,9 @@ const MTEXT_CODE =
  * i v názvech vrstev) jako znaky.
  */
 export function decodeDxfUnicode(s: string): string {
-  return s.replace(/\\U\+([0-9A-Fa-f]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
+  return s.replace(/\\U\+([0-9A-Fa-f]{4})/g, (_, h: string) =>
+    String.fromCharCode(parseInt(h, 16)),
+  );
 }
 
 /**
@@ -550,8 +612,10 @@ function textCenter(e: Entity, text: string, h: number): Point | null {
  */
 function mtextCenter(e: Entity, raw: string, h: number, ocs: Affine): Point | null {
   if (!isPoint(e.position)) return null;
-  const lines = mtextLines(raw).map((l) => plainDxfText(l, true));
-  const w = Math.max(...lines.map((l) => l.length)) * CHAR_WIDTH * h;
+  // Stejné zalomení podle šířky rámečku jako u poznámek (`mtextLinesAt`).
+  const box = finite(e.boxWidth, 0);
+  const lines = mtextLines(raw).flatMap((l) => wrapLine(plainDxfText(l, true), box, h));
+  const w = lines.reduce((n, l) => Math.max(n, l.length), 0) * CHAR_WIDTH * h;
   const H = h + (lines.length - 1) * h * LINE_SPACING;
   const a = Math.min(9, Math.max(1, Math.round(finite(e.attachmentPoint, 1))));
   const col = (a - 1) % 3;
@@ -864,12 +928,21 @@ function addPolyline(e: Entity, m: Affine, out: Collector) {
     out.count(out.unsupported, 'POLYLINE (síť)');
     return;
   }
+  if (e.incomplete === true) {
+    out.errorOnce(
+      'LWPOLYLINE má méně vrcholů, než sama uvádí (neúplná data) – přeskočena, díl z ní nevznikne.',
+    );
+    return;
+  }
   type V = { x?: number; y?: number; bulge?: number; splineControlPoint?: boolean };
   const raw = (Array.isArray(e.vertices) ? (e.vertices as V[]) : []).filter(
     (v) => !v.splineControlPoint && Number.isFinite(v.x) && Number.isFinite(v.y),
   );
   const verts = raw.map((v) => ({ x: v.x!, y: v.y!, bulge: finite(v.bulge, 0) }));
-  if (verts.length < 2) return;
+  if (verts.length < 2) {
+    out.warnOnce(`${e.type} s méně než dvěma vrcholy byla přeskočena.`);
+    return;
+  }
   const closed = e.shape === true;
   const n = verts.length;
   const count = closed ? n : n - 1;
@@ -883,12 +956,13 @@ function addPolyline(e: Entity, m: Affine, out: Collector) {
 function addEllipse(e: Entity, m: Affine, out: Collector) {
   const layer = String(e.layer ?? '0');
   const ratio = finite(e.axisRatio, 0);
-  if (!isPoint(e.center) || !isPoint(e.majorAxisEndPoint) || !(ratio > 0)) {
+  const axis = isPoint(e.majorAxisEndPoint) ? e.majorAxisEndPoint : { x: 0, y: 0 };
+  if (!isPoint(e.center) || !(Math.hypot(axis.x, axis.y) > 0) || !(ratio > 0)) {
     out.warnOnce('ELLIPSE s neplatnými parametry byla přeskočena.');
     return;
   }
   const c = e.center;
-  const M = e.majorAxisEndPoint;
+  const M = axis;
   // Vedlejší osa = poměr · (N × M); pro N = (0, 0, ±1) je to ±(−My, Mx).
   const nz = extrusionOf(e).z < 0 ? -1 : 1;
   const minor = { x: -nz * ratio * M.y, y: nz * ratio * M.x };
@@ -938,7 +1012,8 @@ function addSpline(e: Entity, m: Affine, out: Collector) {
         out.localTol(m),
         4,
       );
-      pts.push(...(pts.length > 0 ? span.slice(1) : span));
+      // Bez rozbalení do argumentů – úsek může mít statisíce bodů.
+      for (let i = pts.length > 0 ? 1 : 0; i < span.length; i++) pts.push(span[i]!);
     }
     if (pts.length >= 2) {
       out.polyline(pts, false, m, layer);
@@ -995,6 +1070,7 @@ function walk(
       case 'LINE': {
         const v = e.vertices as Point[] | undefined;
         if (v && isPoint(v[0]) && isPoint(v[1])) out.segment(v[0], v[1], 0, m, layer);
+        else out.warnOnce('LINE s neplatnými daty byla přeskočena.');
         break;
       }
       case 'ARC':
@@ -1024,7 +1100,8 @@ function walk(
 
 function addInsert(e: Entity, m: Affine, ctx: Context, stack: readonly string[], layer: string) {
   const name = String(e.name ?? '');
-  const block = ctx.blocks[name];
+  // Jen vlastní klíče – blok „constructor" by jinak našel vlastnost prototypu.
+  const block = Object.hasOwn(ctx.blocks, name) ? ctx.blocks[name] : undefined;
   if (!block) {
     ctx.out.warnOnce(`Blok „${name}" ve výkresu chybí – vložení přeskočeno.`);
     return;
@@ -1094,10 +1171,38 @@ function unhandledTypes(text: string): Map<string, number> {
       continue;
     }
     if (code !== '0' || (section !== 'ENTITIES' && section !== 'BLOCKS')) continue;
-    if (STRUCTURE.has(value) || known.has(value)) continue;
+    if (value === '' || STRUCTURE.has(value) || known.has(value)) continue;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return counts;
+}
+
+/** Výkres končí dvojicí 0/EOF (za ní smí být jen prázdné řádky). */
+const HAS_EOF = /(^|[\r\n])[ \t]*0[ \t]*(\r\n|\r|\n)[ \t]*EOF\s*$/;
+
+/** Useknutý výkres se doplňuje, jen vypadá-li jako DXF (má aspoň začátek sekce). */
+const HAS_SECTION = /(^|[\r\n])[ \t]*0[ \t]*(\r\n|\r|\n)[ \t]*SECTION[ \t]*(\r|\n)/;
+
+/**
+ * Doplnění useknutého výkresu: za celou dvojicí, za osamělým kódem 0 a za
+ * kódem bez hodnoty – vždy mimo sekci, uvnitř sekce (chybí i ENDSEC)
+ * a uvnitř bloku (chybí i ENDBLK).
+ */
+const EOF_ENDINGS = ['0\n', '', '0\n0\n'].flatMap((start) =>
+  ['EOF\n', 'ENDSEC\n0\nEOF\n', 'ENDBLK\n0\nENDSEC\n0\nEOF\n'].map((end) => start + end),
+);
+
+/** Sekce, uvnitř které text výkresu končí (bez ENDSEC), jinak prázdný řetězec. */
+function openSection(text: string): string {
+  const lines = text.split(/\r\n|\r|\n/);
+  let section = '';
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    if (lines[i]!.trim() !== '0') continue;
+    const value = lines[i + 1]!.trim();
+    if (value === 'SECTION') section = lines[i + 3]?.trim() ?? '';
+    else if (value === 'ENDSEC') section = '';
+  }
+  return section;
 }
 
 const formatList = (map: ReadonlyMap<string, number>) =>
@@ -1117,15 +1222,57 @@ export function readDxf(
   if (text.startsWith('AutoCAD Binary DXF')) {
     return fail(mm, 'Binární DXF není podporované – uložte výkres jako ASCII DXF.');
   }
-  let dxf: ReturnType<DxfParser['parseSync']>;
-  try {
-    dxf = createParser().parseSync(text);
-  } catch (e) {
-    return fail(mm, `Soubor DXF nelze přečíst: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  if (!dxf) return fail(mm, 'Soubor DXF nelze přečíst.');
-
+  if (text.trim() === '') return fail(mm, 'Soubor je prázdný.');
   const warnings: string[] = [];
+  let dxf: ReturnType<DxfParser['parseSync']> | undefined;
+  // Výkres bez ukončení (0/EOF) dxf-parser odmítne celý: zkusit ho doplnit –
+  // i za kódem, kterému chybí hodnota (soubor useknutý uprostřed dvojice).
+  let failure = '';
+  const parse = (source: string) => {
+    try {
+      dxf = createParser().parseSync(source);
+    } catch (e) {
+      failure ||= e instanceof Error ? e.message : String(e);
+    }
+  };
+  // Sekce, ve které soubor bez ukončení končí – zjistit před čtením.
+  const section = HAS_EOF.test(text) ? '' : openSection(text.trimEnd());
+  // Konec v hlavičce nebo tabulkách se nedoplňuje: geometrie tam není
+  // a dxf-parser se na doplněném konci uvnitř tabulky hladin zacyklí.
+  // Konec uvnitř bloků také ne – neúplný blok by dal tiše jiný díl.
+  if (section !== '' && section !== 'ENTITIES' && section !== 'OBJECTS') {
+    return fail(
+      mm,
+      section === 'BLOCKS'
+        ? 'Soubor je useknutý uprostřed bloků (chybí ukončení EOF) – výkres je neúplný a nelze ho načíst.'
+        : 'Soubor DXF nelze přečíst: soubor je neúplný.',
+    );
+  }
+  parse(text);
+  const errors: string[] = [];
+  if (!dxf && !HAS_EOF.test(text) && HAS_SECTION.test(text)) {
+    const body = text.trimEnd();
+    for (const end of EOF_ENDINGS) {
+      parse(`${body}\n${end}`);
+      if (dxf) break;
+    }
+    const parsed = dxf as ReturnType<DxfParser['parseSync']> | undefined;
+    if (parsed && section === 'ENTITIES') {
+      // Konec uprostřed entit: poslední entita je nejspíš neúplná (uzavřená
+      // křivka bez části vrcholů by dala tiše jiný díl) – vynechat.
+      parsed.entities?.pop();
+      errors.push(
+        'Soubor je useknutý uprostřed výkresu (chybí ukončení EOF) – poslední entita byla vynechána a další část výkresu chybí.',
+      );
+    } else if (parsed) {
+      warnings.push('Soubor nemá ukončení (EOF) – je nejspíš neúplný, část výkresu může chybět.');
+    }
+  }
+  if (!dxf) {
+    const reason = /after EOF|EOF group not read/i.test(failure) ? 'soubor je neúplný' : failure;
+    return fail(mm, `Soubor DXF nelze přečíst${reason ? `: ${reason}` : '.'}`);
+  }
+
   const code = Number(dxf.header?.$INSUNITS ?? 0);
   let units: DxfUnits;
   const known = UNITS[code];
@@ -1185,7 +1332,8 @@ export function readDxf(
     warnings.push(`Přeskočeny entity bez geometrie dílu: ${formatList(out.ignored)}.`);
   if (out.unsupported.size > 0)
     warnings.push(`Nepodporované entity přeskočeny: ${formatList(out.unsupported)}.`);
-  const errors = out.segments.length === 0 ? ['Výkres neobsahuje žádnou geometrii dílu.'] : [];
+  errors.push(...out.errors);
+  if (out.segments.length === 0) errors.push('Výkres neobsahuje žádnou geometrii dílu.');
   return { ok: true, segments: out.segments, texts: out.texts, units, warnings, errors };
 }
 

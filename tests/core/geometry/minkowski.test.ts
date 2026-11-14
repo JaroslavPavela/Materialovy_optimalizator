@@ -1,6 +1,12 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { minkowskiSum, pointInIntRing, polygonsArea } from '../../../src/core/geometry/clipper.ts';
+import {
+  differencePolygons,
+  minkowskiSum,
+  pointInIntRing,
+  polygonsArea,
+  unionPolygons,
+} from '../../../src/core/geometry/clipper.ts';
 import {
   cleanRing,
   convexDecomposition,
@@ -191,5 +197,65 @@ describe('IFP otvoru a konvexní obal', () => {
       { x: 0, y: 65.5 },
     ];
     expect(holeInnerFit(tall.toReversed(), wide)).toEqual([]);
+  });
+});
+
+describe('holeInnerFit – kaskádové sjednocení (code-review)', () => {
+  /** Kruhový otvor s n hranami (CW) a hřeben s 5 zuby natočený o 14°. */
+  const circle = (r: number, n: number): Ring =>
+    Array.from({ length: n }, (_, i) => {
+      const a = (-2 * Math.PI * i) / n;
+      return { x: r * Math.cos(a), y: r * Math.sin(a) };
+    });
+  const comb = (): Ring => {
+    const out: Point[] = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 20 },
+    ];
+    for (let k = 4; k >= 0; k--) {
+      const a = (20 * (k + 0.6)) / 5;
+      const b = (20 * (k + 0.1)) / 5;
+      out.push({ x: a, y: 20 }, { x: a, y: 100 }, { x: b, y: 100 }, { x: b, y: 20 });
+    }
+    out.push({ x: 0, y: 20 });
+    const c = Math.cos((14 * Math.PI) / 180);
+    const s = Math.sin((14 * Math.PI) / 180);
+    return out.map((p) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c }));
+  };
+
+  it('dá stejnou oblast jako jedno sjednocení všech tažení a nezdrží se', () => {
+    const hole = circle(133, 116);
+    const b = comb();
+    const start = performance.now();
+    const fit = holeInnerFit(hole, b);
+    const ms = performance.now() - start;
+    // Reference: jedno sjednocení (původní postup).
+    const pieces = convexDecomposition(b.map((p) => ({ x: -p.x, y: -p.y })))!;
+    const sweeps: Polygon[] = [];
+    hole.forEach((p, i) => {
+      const q = hole[(i + 1) % hole.length]!;
+      for (const piece of pieces) {
+        sweeps.push({
+          outer: convexHull([
+            ...piece.map((v) => ({ x: v.x + p.x, y: v.y + p.y })),
+            ...piece.map((v) => ({ x: v.x + q.x, y: v.y + q.y })),
+          ]),
+          holes: [],
+        });
+      }
+    });
+    const b0 = b[0]!;
+    const reference = differencePolygons(
+      [{ outer: hole.map((p) => ({ x: p.x - b0.x, y: p.y - b0.y })).toReversed(), holes: [] }],
+      unionPolygons(sweeps),
+    );
+    expect(polygonsArea(fit)).toBeGreaterThan(1000);
+    expect(polygonsArea(fit)).toBeCloseTo(polygonsArea(reference), 1);
+    // Střed otvoru je přípustný jen tehdy, leží-li tam celý hřeben.
+    expect(inside({ x: -5, y: -50 }, fit)).toBe(true);
+    expect(inside({ x: 100, y: 0 }, fit)).toBe(false);
+    // Pojistka výkonu (měřeno ~100 ms, jedno sjednocení ~320 ms).
+    expect(ms).toBeLessThan(2000);
   });
 });

@@ -36,7 +36,7 @@ test('hladiny výkresu: volba rolí → plán → export DXF s původními hladi
 
   await page.getByLabel('Soubory s díly').setInputFiles(file);
   // Výchozí role: vše vnější obrys – ohyb a kóta jsou neuzavřené kontury.
-  await expect(report(page)).toContainText(/načteno 1 dílů, \d+ chyb/);
+  await expect(report(page)).toContainText(/načten 1 díl, \d+ chyb/);
   // Okno s chybami se otevře samo – zavřít, jinak blokuje stránku.
   await page
     .getByRole('dialog', { name: 'Hlášení importu výkresů' })
@@ -49,7 +49,7 @@ test('hladiny výkresu: volba rolí → plán → export DXF s původními hladi
   await page.getByLabel('Role hladiny OHYB').selectOption({ label: 'přidej k dílu' });
   await page.getByLabel('Role hladiny KOTY').selectOption({ label: 'ignoruj' });
   await page.getByLabel('Role hladiny DIRY').selectOption({ label: 'vnitřní obrys' });
-  await expect(report(page)).toHaveText(/^deska\.dxf: načteno 1 dílů\.$/);
+  await expect(report(page)).toHaveText(/^deska\.dxf: načten 1 díl\.$/);
   await page.getByLabel('Počet dílu 1').fill('2');
   await page.getByLabel('Počet dílu 1').press('Enter');
 
@@ -76,7 +76,7 @@ test('hladiny výkresu: volba rolí → plán → export DXF s původními hladi
   await page.reload();
   await page.getByRole('button', { name: 'Nový projekt' }).click();
   await page.getByLabel('Soubory s díly').setInputFiles(file);
-  await expect(report(page)).toHaveText(/^deska\.dxf: načteno 1 dílů\.$/);
+  await expect(report(page)).toHaveText(/^deska\.dxf: načten 1 díl\.$/);
   await expect(page.getByLabel('Role hladiny OHYB')).toHaveValue('attach');
   await expect(page.getByLabel('Role hladiny DIRY')).toHaveValue('inner');
   expect(errors).toEqual([]);

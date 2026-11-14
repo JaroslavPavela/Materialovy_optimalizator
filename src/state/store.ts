@@ -231,8 +231,11 @@ const projectReset = {
 } satisfies Partial<AppState>;
 
 let client: NestingClient | null = null;
-/** Výsledek, ze kterého už byly zbytky uloženy. */
-let remnantsSavedFor: NestingResult | null = null;
+/**
+ * Vstup výpočtu, z jehož výsledku už byly zbytky uloženy (výsledek sám se
+ * během výpočtu mění s každým průběžným plánem, vstup je pro běh jeden).
+ */
+let remnantsSavedFor: NestingInput | null = null;
 /** Klient workeru (vytvoří se při prvním výpočtu); v testech lze podstrčit vlastní. */
 export function setNestingClient(c: NestingClient | null): void {
   client = c;
@@ -241,6 +244,14 @@ const getClient = () => (client ??= createNestingClient());
 
 /** Pořadí nového načtení výkresů – starší, pomalejší načtení se zahodí. */
 let reimportRun = 0;
+/** Pořadí výpočtu – zprávy staršího (zrušeného) běhu se zahodí. */
+let calcRun = 0;
+/** Roste s každým načtením projektu – import rozběhnutý v jiném projektu se zahodí. */
+let projectEpoch = 0;
+
+const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Hlášení souborů CSV – nové načtení výkresů je nepřepisuje. */
+const csvReports = (reports: readonly ImportReport[]) => reports.filter((r) => r.kind === 'csv');
 
 /** Díly z výsledku importu spolu s polohou ve výkresu. */
 const importedParts = (r: DxfPartsResult): ImportedPart[] =>
@@ -293,16 +304,19 @@ async function reimportDrawings(
       );
     }
   } catch (e) {
-    if (run !== reimportRun) return;
-    const message = e instanceof Error ? e.message : String(e);
+    // Zrušeno ukončením workeru (načten jiný projekt) – není co hlásit.
+    if (run !== reimportRun || e instanceof NestingAbortedError) return;
     set({
-      importReports: targets.map((d) => ({
-        fileName: d.fileName,
-        kind: d.kind,
-        partCount: 0,
-        errors: [`Nové načtení výkresu selhalo: ${message}`],
-        warnings: [],
-      })),
+      importReports: [
+        ...csvReports(get().importReports),
+        ...targets.map((d) => ({
+          fileName: d.fileName,
+          kind: d.kind,
+          partCount: 0,
+          errors: [`Nové načtení výkresu selhalo: ${errorMessage(e)}`],
+          warnings: [],
+        })),
+      ],
     });
     return;
   }
@@ -327,7 +341,7 @@ async function reimportDrawings(
     drawings: current
       .filter((d) => updated.has(d) || drawingInUse(d, parts))
       .map((d) => updated.get(d) ?? d),
-    importReports: reports,
+    importReports: [...csvReports(get().importReports), ...reports],
   });
 }
 
@@ -336,6 +350,10 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   loadProject(project) {
     if (get().status === 'running') client?.abort();
+    // Rozběhnutý výpočet, import i nové načtení výkresů patří starému projektu.
+    projectEpoch++;
+    calcRun++;
+    reimportRun++;
     set({
       ...projectReset,
       parts: project.parts,
@@ -384,10 +402,13 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   saveRemnants() {
-    const { result, resultInput } = get();
-    // Pro jeden výsledek jen jednou – jinak by se zbytky ve skladu zdvojily.
-    if (!result || !resultInput || remnantsSavedFor === result) return 0;
-    remnantsSavedFor = result;
+    const { result, resultInput, status } = get();
+    // Za běhu výpočtu ne (plán se ještě mění) a pro jeden výpočet jen jednou –
+    // jinak by se zbytky ve skladu zdvojily.
+    if (!result || !resultInput || status === 'running' || remnantsSavedFor === resultInput) {
+      return 0;
+    }
+    remnantsSavedFor = resultInput;
     const added = remnantSheets(resultInput, result, () => newId('zbytek'));
     // Zbytkové tabule použité ve výsledku se spotřebovaly: odečíst ze skladu.
     const used = new Map<string, number>();
@@ -412,54 +433,72 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   async importFiles(files) {
+    const epoch = projectEpoch;
     // Všechny soubory dávky se stejnými rolemi hladin a volbou textů.
     const roles = get().layerRoles;
     const notesFromAllLayers = get().notesFromAllLayers;
+    const kindOf = (f: ImportFile) =>
+      /\.(dxf|dwg)$/i.exec(f.name)?.[1]?.toLowerCase() as 'dxf' | 'dwg' | undefined;
     /** Díly z prvního CSV dávky – nahradí seznam dílů. */
     let replacement: Part[] | null = null;
     const addedParts: Part[] = [];
-    let addedDrawings: LoadedDrawing[] = [];
+    const addedDrawings: LoadedDrawing[] = [];
     const reports: ImportReport[] = [];
+    // CSV napřed: nahrazuje seznam dílů, výkresy téže dávky se přidají k němu
+    // bez ohledu na pořadí souborů.
     for (const f of files) {
-      const drawing = /\.(dxf|dwg)$/i.exec(f.name)?.[1]?.toLowerCase() as 'dxf' | 'dwg' | undefined;
-      if (drawing) {
-        const mode = get().dxfMode;
-        const r = await getClient().importDrawing(f.name, f.data, {
+      if (kindOf(f)) continue;
+      const r = parsePartsCsv(f.data, { idPrefix: newId('csv') });
+      if (replacement === null) replacement = r.parts;
+      else addedParts.push(...r.parts);
+      const withRow = (i: { row: number; message: string }) => `Řádek ${i.row}: ${i.message}`;
+      reports.push({
+        fileName: f.name,
+        kind: 'csv',
+        partCount: r.parts.length,
+        errors: r.errors.map(withRow),
+        warnings: r.warnings.map(withRow),
+      });
+    }
+    for (const f of files) {
+      const drawing = kindOf(f);
+      if (!drawing) continue;
+      const mode = get().dxfMode;
+      let r: DxfPartsResult;
+      try {
+        r = await getClient().importDrawing(f.name, f.data, {
           mode,
           idPrefix: newId(drawing),
           layerRoles: roles,
           notesFromAllLayers,
         });
-        addedParts.push(...r.parts);
-        addedDrawings.push({
-          fileName: f.name,
-          data: f.data,
-          kind: drawing,
-          mode,
-          layers: r.layers,
-          imported: importedParts(r),
-          memory: new Map(),
-        });
-        reports.push(drawingReport(f.name, drawing, r));
-      } else {
-        const r = parsePartsCsv(f.data, { idPrefix: newId('csv') });
-        if (replacement === null) {
-          replacement = r.parts;
-          addedParts.length = 0;
-          addedDrawings = [];
-        } else {
-          addedParts.push(...r.parts);
-        }
-        const withRow = (i: { row: number; message: string }) => `Řádek ${i.row}: ${i.message}`;
+      } catch (e) {
+        // Worker ukončen (načten jiný projekt) – dávka se tiše zahodí.
+        if (e instanceof NestingAbortedError) return;
+        // Selhání jednoho souboru nesmí zahodit ostatní.
         reports.push({
           fileName: f.name,
-          kind: 'csv',
-          partCount: r.parts.length,
-          errors: r.errors.map(withRow),
-          warnings: r.warnings.map(withRow),
+          kind: drawing,
+          partCount: 0,
+          errors: [`Načtení výkresu selhalo: ${errorMessage(e)}`],
+          warnings: [],
         });
+        continue;
       }
+      addedParts.push(...r.parts);
+      addedDrawings.push({
+        fileName: f.name,
+        data: f.data,
+        kind: drawing,
+        mode,
+        layers: r.layers,
+        imported: importedParts(r),
+        memory: new Map(),
+      });
+      reports.push(drawingReport(f.name, drawing, r));
     }
+    // Mezitím byl načten jiný projekt – do něj tento import nepatří.
+    if (epoch !== projectEpoch) return;
     // Během importu se mohlo cokoli změnit (nové načtení po změně role):
     // přidat k aktuálnímu stavu, ne k tomu před importem.
     const replace = replacement;
@@ -550,7 +589,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   },
 
   removePart(id) {
-    set((s) => ({ parts: s.parts.filter((p) => p.id !== id) }));
+    get().removeParts([id]);
   },
 
   updateParts(ids, patch) {
@@ -560,7 +599,12 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   removeParts(ids) {
     const target = new Set(ids);
-    set((s) => ({ parts: s.parts.filter((p) => !target.has(p.id)) }));
+    set((s) => {
+      const parts = s.parts.filter((p) => !target.has(p.id));
+      // Výkres, ze kterého nezbyl žádný díl, už není potřeba držet v paměti.
+      const drawings = s.drawings.filter((d) => drawingInUse(d, parts));
+      return drawings.length === s.drawings.length ? { parts } : { parts, drawings };
+    });
   },
 
   clearParts() {
@@ -622,24 +666,30 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     const { parts, sheets, params, status } = get();
     if (status === 'running') return;
     const input: NestingInput = { parts, sheets, params };
+    const run = ++calcRun;
     set({ status: 'running', progress: null, issues: [], error: null, stopped: false });
-    const onProgress = (p: NestProgress) =>
+    // Zpráva o průběhu může dorazit i po zrušení výpočtu (načten jiný projekt).
+    const onProgress = (p: NestProgress) => {
+      if (run !== calcRun) return;
       set({
         progress: { step: p.step, total: p.totalSteps, fraction: p.fraction },
         result: p.best,
         resultInput: input,
       });
+    };
     let outcome: NestOutcome;
     try {
       outcome = await getClient().nest(input, onProgress);
     } catch (e) {
+      if (run !== calcRun) return;
       if (e instanceof NestingAbortedError) {
         set({ status: 'idle', progress: null });
         return;
       }
-      set({ status: 'error', error: e instanceof Error ? e.message : String(e), progress: null });
+      set({ status: 'error', error: errorMessage(e), progress: null });
       return;
     }
+    if (run !== calcRun) return;
     if (!outcome.ok) {
       set({
         status: 'error',
@@ -685,5 +735,9 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 /** Vrátí store do výchozího stavu (testy, nový projekt). */
 export function resetAppStore(): void {
   client?.abort();
+  projectEpoch++;
+  calcRun++;
+  reimportRun++;
+  remnantsSavedFor = null;
   useAppStore.setState(initialState);
 }

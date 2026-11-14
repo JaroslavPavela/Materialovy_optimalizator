@@ -1,6 +1,7 @@
 import { contourArea, contourBBox, contourToRing } from '../geometry/contour.ts';
 import { EPS } from '../geometry/eps.ts';
 import { pointInRing, pointSegmentDistance } from '../geometry/polygon.ts';
+import { RectIndex } from '../geometry/rect-index.ts';
 import type { Contour, Point, Rect, Ring } from '../geometry/types.ts';
 import type { PartShape } from '../model.ts';
 import type { ShapeRegion } from './contours.ts';
@@ -33,14 +34,28 @@ export function regionLabels(
     depth: r.depth,
   }));
   const best: ({ text: DxfText; material: boolean } | null)[] = regions.map(() => null);
+  // Jen oblasti (a otvory), jejichž obalový obdélník bod textu obsahuje.
+  const index = new RectIndex(outlines.map((o) => o.box));
+  const holeIndexes = new Map<number, RectIndex>();
+  const holesAt = (owner: number, at: Rect) => {
+    let holes = holeIndexes.get(owner);
+    if (!holes) {
+      holes = new RectIndex(outlines[owner]!.holes.map((h) => h.box));
+      holeIndexes.set(owner, holes);
+    }
+    return holes.query(at).map((k) => outlines[owner]!.holes[k]!);
+  };
   for (const t of texts) {
+    if (!Number.isFinite(t.at.x) || !Number.isFinite(t.at.y)) continue;
+    const at = { x: t.at.x, y: t.at.y, width: 0, height: 0 };
     let owner = -1;
-    outlines.forEach((o, i) => {
-      if (owner >= 0 && outlines[owner]!.depth >= o.depth) return;
+    for (const i of index.query(at)) {
+      const o = outlines[i]!;
+      if (owner >= 0 && outlines[owner]!.depth >= o.depth) continue;
       if (inBox(t.at, o.box) && pointInRing(t.at, o.ring)) owner = i;
-    });
+    }
     if (owner < 0) continue;
-    const material = !outlines[owner]!.holes.some(
+    const material = !holesAt(owner, at).some(
       (h) => inBox(t.at, h.box) && pointInRing(t.at, h.ring),
     );
     const cur = best[owner];

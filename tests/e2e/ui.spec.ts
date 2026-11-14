@@ -105,7 +105,7 @@ test('přehled všech tabulí → otevření tabule z přehledu', async ({ page 
   const count = await tabs.count();
   expect(count).toBeGreaterThan(1);
   const total = page.locator('.plan-toolbar .muted');
-  await expect(total).toHaveText(`${count} tabulí`);
+  await expect(total).toHaveText(`${count} ${count < 5 ? 'tabule' : 'tabulí'}`);
 
   await page.getByRole('button', { name: 'Všechny tabule' }).click();
   await expect(page.getByRole('button', { name: 'Všechny tabule' })).toHaveAttribute(

@@ -4,7 +4,12 @@ import type { Sheet } from '../../src/core/model.ts';
 import { PROJECT_FORMAT, type ProjectFile } from '../../src/core/project.ts';
 import { resetAppStore, useAppStore } from '../../src/state/store.ts';
 import type { ProjectStorage } from '../../src/storage/db.ts';
-import { AUTOSAVE_DELAY_MS, initPersistence } from '../../src/storage/persistence.ts';
+import {
+  AUTOSAVE_DELAY_MS,
+  initPersistence,
+  MAX_RETRIES,
+  RETRY_DELAY_MS,
+} from '../../src/storage/persistence.ts';
 
 /** Úložiště v paměti; počítá zápisy. */
 function memoryStorage(project: unknown = null, library: unknown[] = [], roles: unknown = null) {
@@ -186,6 +191,36 @@ describe('initPersistence', () => {
     state().addPart();
     await p.flush();
     expect(data.projectWrites).toBe(1);
+    await p.dispose();
+  });
+
+  it('neúspěšný zápis se zopakuje sám, i když už žádná změna nepřijde', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { storage, data } = memoryStorage();
+    let failures = 2;
+    const save = storage.saveLastProject;
+    storage.saveLastProject = (f) => (failures-- > 0 ? Promise.reject(new Error('plno')) : save(f));
+    const p = await initPersistence(storage);
+    state().addPart();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
+    expect(data.projectWrites).toBe(0);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+    expect(data.projectWrites).toBe(0);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+    expect(data.projectWrites).toBe(1);
+    expect((data.project as ProjectFile).parts).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+    await p.dispose();
+  });
+
+  it('trvale nefunkční úložiště se nezkouší donekonečna', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { storage } = memoryStorage();
+    storage.saveLastProject = () => Promise.reject(new Error('plno'));
+    const p = await initPersistence(storage);
+    state().addPart();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 20 * RETRY_DELAY_MS);
+    expect(warn).toHaveBeenCalledTimes(MAX_RETRIES);
     await p.dispose();
   });
 });

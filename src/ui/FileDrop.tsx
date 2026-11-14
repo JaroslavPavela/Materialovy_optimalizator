@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DxfPartMode } from '../core/import/dxf-parts.ts';
 import { layerRole, LAYER_ROLES, type LayerRole } from '../core/import/layers.ts';
 import { drawingInUse } from '../state/drawings.ts';
@@ -104,6 +104,19 @@ export function FileDrop() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const drawingReports = reports.filter((r) => r.kind !== 'csv');
   const input = useRef<HTMLInputElement>(null);
+
+  // Soubor puštěný vedle zóny by prohlížeč otevřel místo aplikace.
+  useEffect(() => {
+    const block = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', block);
+    window.addEventListener('drop', block);
+    return () => {
+      window.removeEventListener('dragover', block);
+      window.removeEventListener('drop', block);
+    };
+  }, []);
 
   const load = async (list: FileList | null) => {
     if (!list || list.length === 0) return;

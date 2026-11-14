@@ -9,7 +9,9 @@ function zoneRect(z: ForbiddenZone) {
   const ys = z.polygon.map((p) => p.y);
   const x = Math.min(...xs);
   const y = Math.min(...ys);
-  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+  // Rozdíl souřadnic nese zaokrouhlovací chybu (0,4 + 7,8 − 0,4 = 7,799…).
+  const round = (v: number) => Math.round(v * 1e6) / 1e6;
+  return { x, y, w: round(Math.max(...xs) - x), h: round(Math.max(...ys) - y) };
 }
 
 function ZoneRow({ sheet, zone, index }: { sheet: Sheet; zone: ForbiddenZone; index: number }) {
